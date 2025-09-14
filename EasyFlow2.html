@@ -101,13 +101,18 @@
 
     <div class="divider"></div>
 
-    <div class="group">
+  <div class="group">
       <button id="saveBtn" class="warn" title="Save (Ctrl+S)">Save</button>
       <button id="loadBtn" class="warn">Load</button>
       <input id="fileInput" class="sr-only" type="file" accept=".json" />
       <button id="exportSvgBtn" class="success">Export SVG</button>
       <button id="resetBtn" class="danger" data-translate-key="reset" data-translate-key-title="resetTitle">Reset</button>
-    </div>
+  </div>
+
+  <div class="group">
+      <button id="addImgBtn" class="gray" data-translate-key="addImage" title="Add Image">+ Image</button>
+      <input id="imgInput" class="sr-only" type="file" accept="image/*" />
+  </div>
 
     <div class="group">
       <label class="badge"><input id="aiEnable" type="checkbox"> <span data-translate-key="aiAssistant">AI-Assistent</span></label>
@@ -186,6 +191,7 @@
         elDatabase: 'Datenbank',
         elManual: 'Manuell',
         elWait: 'Wartezeit',
+        elImage: 'Bild',
         reset: 'Reset',
         resetTitle: 'Alles zurücksetzen',
         confirmReset: 'Möchten Sie wirklich die gesamte Arbeitsfläche zurücksetzen? Alle Änderungen gehen verloren.',
@@ -203,6 +209,9 @@
         defaultColName: 'Spalte',
         defaultNodeName: 'Knoten',
         equalize: 'Alle gleich',
+        addColumn: 'Spalte hinzufügen',
+        visible: 'Sichtbar',
+        addImage: 'Bild hinzufügen',
         aiSampleText: `ITIL-angelehnter Request Flow:\n- Nutzer stellt Service Request im Portal ein (Start)\n- 1st Level klassifiziert und prüft\n- Entscheidung: Incident oder Service Request?\n  - Wenn Incident: Incident-Process, Workaround, Escalation, Abschluss\n  - Wenn Service Request: Genehmigung durch Kostenstellenleiter\n- Umsetzung durch Field IT\n- Dokumentation & Abschlussbericht\n- Knowledge Update & Review (Ende)`,
         aiPrompt: `Erzeuge *ausschließlich* valides JSON, keine Erklärtexte, keine Markdown-Codeblöcke. Schema:\n{\n  \"version\": \"1.0\",\n  \"columns\": [ { \"id\": number, \"name\": string, \"flex\": number, \"color\": string } ],\n  \"elements\": [\n    { \"id\": string (oder leer), \"type\": \"start\"|\"process\"|\"decision\"|\"document\"|\"database\"|\"manual\"|\"wait\"|\"connector\",\n      \"text\": string,\n      \"lane\": string (Spaltenname),\n      \"width\"?: number, \"height\"?: number,\n      \"x\"?: number, \"y\"?: number\n    }\n  ],\n  \"connections\": [ { \"from\": string, \"to\": string, \"mode\"?: \"auto\"|\"horizontal\"|\"vertical\" } ]\n}\nRegeln: 1) IDs, wenn leer, einfach generisch lassen (wir vergeben sie). 2) *Kein* Freitext außerhalb des JSON. 3) Lane-Namen müssen den Spaltennamen entsprechen. 4) Wenn Position (x,y) fehlt: nur lane setzen.\n\nOrganisation:\n{orgText}`
       },
@@ -233,6 +242,7 @@
         elDatabase: 'Database',
         elManual: 'Manual Input',
         elWait: 'Delay',
+        elImage: 'Image',
         reset: 'Reset',
         resetTitle: 'Reset entire canvas',
         confirmReset: 'Are you sure you want to reset the entire canvas? All changes will be lost.',
@@ -250,6 +260,9 @@
         defaultColName: 'Column',
         defaultNodeName: 'Node',
         equalize: 'Equalize',
+        addColumn: 'Add Column',
+        visible: 'Visible',
+        addImage: 'Add Image',
         aiSampleText: `ITIL-inspired Request Flow:\n- User submits a Service Request in the portal (Start)\n- 1st Level classifies and checks it\n- Decision: Is it an Incident or a Service Request?\n  - If Incident: Incident Process, Workaround, Escalation, Closure\n  - If Service Request: Approval by cost center manager\n- Implementation by Field IT\n- Documentation & Final Report\n- Knowledge Update & Review (End)`,
         aiPrompt: `Generate *only* valid JSON, no explanatory text, no markdown code blocks. Schema:\n{\n  \"version\": \"1.0\",\n  \"columns\": [ { \"id\": number, \"name\": string, \"flex\": number, \"color\": string } ],\n  \"elements\": [\n    { \"id\": string (or empty), \"type\": \"start\"|\"process\"|\"decision\"|\"document\"|\"database\"|\"manual\"|\"wait\"|\"connector\",\n      \"text\": string,\n      \"lane\": string (column name),\n      \"width\"?: number, \"height\"?: number,\n      \"x\"?: number, \"y\"?: number\n    }\n  ],\n  \"connections\": [ { \"from\": string, \"to\": string, \"mode\"?: \"auto\"|\"horizontal\"|\"vertical\" } ]\n}\nRules: 1) If IDs are empty, just leave them (we assign them). 2) *No* free text outside the JSON. 3) Lane names must match the column names. 4) If position (x,y) is missing: just set the lane.\n\nOrganization:\n{orgText}`
       }
@@ -302,7 +315,8 @@
       database:  { nameKey: 'elDatabase',  shape: 'database', color: '#06b6d4' },
       manual:    { nameKey: 'elManual',    shape: 'trapezoid',color: '#ef4444' },
       wait:      { nameKey: 'elWait',      shape: 'delay',    color: '#6b7280' },
-      connector: { nameKey: 'elConnector', shape: 'circle',   color: '#1f2937' }
+      connector: { nameKey: 'elConnector', shape: 'circle',   color: '#1f2937' },
+      image:     { nameKey: 'elImage',     shape: 'image',    color: '#ffffff' }
     };
 
     const fonts = ['Arial','Helvetica','Times New Roman','Courier New','Verdana','Georgia'];
@@ -465,15 +479,6 @@
           handles.appendChild(handle);
         }
       }
-
-    function equalizeColumns(){
-      const vis = state.columns.filter(c=>c.flex>0);
-      if (!vis.length) return;
-      const share = 1 / vis.length;
-      for (const c of vis) c.flex = share;
-      renderColumnsBg();
-      renderColumnsBar();
-    }
     }
 
     function onColResizeMove(e){
@@ -497,6 +502,16 @@
       document.body.style.userSelect = '';
       window.removeEventListener('pointermove', onColResizeMove);
       colDrag = null;
+      renderColumnsBar();
+    }
+
+    // Make available globally so renderColumnsBar can bind before any rendering
+    function equalizeColumns(){
+      const vis = state.columns.filter(c=>c.flex>0);
+      if (!vis.length) return;
+      const share = 1 / vis.length;
+      for (const c of vis) c.flex = share;
+      renderColumnsBg();
       renderColumnsBar();
     }
 
@@ -570,24 +585,40 @@
         const isSel = state.selectedElement===el.id || (state.selectedElements||[]).includes(el.id);
         const common = { fill: el.color, stroke: isSel? '#ef4444' : '#374151', 'stroke-width': isSel? 3 : 1, style:'cursor:move', 'data-element-id': el.id };
 
-        switch ((elementTypes[el.type]?.shape)||'rectangle'){
-          case 'oval': g.appendChild(svgEl('ellipse', { cx:w/2, cy:h/2, rx:w/2, ry:h/2, ...common })); break;
-          case 'rectangle': g.appendChild(svgEl('rect', { width:w, height:h, rx:5, ...common })); break;
-          case 'diamond': g.appendChild(svgEl('polygon', { points: `${w/2},0 ${w},${h/2} ${w/2},${h} 0,${h/2}`, ...common })); break;
-          case 'document': {
-            g.appendChild(svgEl('rect', { width:w, height:h-10, ...common }));
-            g.appendChild(svgEl('path', { d:`M0,${h-10} Q${w/4},${h} ${w/2},${h-5} T${w},${h-10}`, ...common }));
-            break; }
-          case 'database': {
-            g.appendChild(svgEl('ellipse', { cx:w/2, cy:10, rx:w/2, ry:10, ...common }));
-            g.appendChild(svgEl('rect', { x:0, y:10, width:w, height:h-20, ...common }));
-            g.appendChild(svgEl('ellipse', { cx:w/2, cy:h-10, rx:w/2, ry:10, ...common }));
-            break; }
-          case 'trapezoid': g.appendChild(svgEl('polygon', { points:`20,0 ${w-20},0 ${w},${h} 0,${h}`, ...common })); break;
-          case 'delay': g.appendChild(svgEl('path', { d:`M0,0 L${w-20},0 Q${w},0 ${w},${h/2} Q${w},${h} ${w-20},${h} L0,${h} Z`, ...common })); break;
-          case 'circle': { const r = Math.min(w,h)/4; g.appendChild(svgEl('circle', { cx:w/2, cy:h/2, r, ...common })); break; }
-          default: g.appendChild(svgEl('rect', { width:w, height:h, ...common }));
-        }
+      switch ((elementTypes[el.type]?.shape)||'rectangle'){
+        case 'oval': g.appendChild(svgEl('ellipse', { cx:w/2, cy:h/2, rx:w/2, ry:h/2, ...common })); break;
+        case 'rectangle': g.appendChild(svgEl('rect', { width:w, height:h, rx:5, ...common })); break;
+        case 'diamond': g.appendChild(svgEl('polygon', { points: `${w/2},0 ${w},${h/2} ${w/2},${h} 0,${h/2}`, ...common })); break;
+        case 'document': {
+          g.appendChild(svgEl('rect', { width:w, height:h-10, ...common }));
+          g.appendChild(svgEl('path', { d:`M0,${h-10} Q${w/4},${h} ${w/2},${h-5} T${w},${h-10}`, ...common }));
+          break; }
+        case 'database': {
+          g.appendChild(svgEl('ellipse', { cx:w/2, cy:10, rx:w/2, ry:10, ...common }));
+          g.appendChild(svgEl('rect', { x:0, y:10, width:w, height:h-20, ...common }));
+          g.appendChild(svgEl('ellipse', { cx:w/2, cy:h-10, rx:w/2, ry:10, ...common }));
+          break; }
+        case 'trapezoid': g.appendChild(svgEl('polygon', { points:`20,0 ${w-20},0 ${w},${h} 0,${h}`, ...common })); break;
+        case 'delay': g.appendChild(svgEl('path', { d:`M0,0 L${w-20},0 Q${w},0 ${w},${h/2} Q${w},${h} ${w-20},${h} L0,${h} Z`, ...common })); break;
+        case 'circle': { const r = Math.min(w,h)/4; g.appendChild(svgEl('circle', { cx:w/2, cy:h/2, r, ...common })); break; }
+        case 'image': {
+          // draw image then selection stroke frame
+          const imgEl = document.createElementNS(NS, 'image');
+          // data URLs or http(s) URLs
+          if (el.src){
+            try { imgEl.setAttributeNS('http://www.w3.org/1999/xlink','href', el.src); } catch(e){}
+            imgEl.setAttribute('href', el.src);
+          }
+          imgEl.setAttribute('width', String(w));
+          imgEl.setAttribute('height', String(h));
+          imgEl.setAttribute('preserveAspectRatio','xMidYMid meet');
+          imgEl.setAttribute('style','pointer-events:all');
+          imgEl.setAttribute('data-element-id', el.id);
+          g.appendChild(imgEl);
+          g.appendChild(svgEl('rect', { width:w, height:h, fill:'none', stroke: state.selectedElement===el.id? '#ef4444' : '#374151', 'stroke-width': state.selectedElement===el.id? 3 : 1, 'pointer-events':'none' }));
+          break; }
+        default: g.appendChild(svgEl('rect', { width:w, height:h, ...common }));
+      }
 
         if (state.selectedElement===el.id || state.connectionStart===el.id){
           const dot = (cx,cy)=>svgEl('circle',{ cx, cy, r:2, fill:'#10b981', 'fill-opacity':.5, stroke:'#fff', 'stroke-width':.5 });
@@ -638,7 +669,8 @@
 
     function renderProps(){
       const p = $('#props');
-      const el = state.elements.find(e=>e.id===state.selectedElement);
+      const activeId = state.selectedElement ?? (state.selectedElements && state.selectedElements.length===1 ? state.selectedElements[0] : null);
+      const el = state.elements.find(e=>e.id===activeId);
       if (!el){ p.style.display='none'; p.innerHTML=''; return; }
       p.style.display='block';
       p.innerHTML = `
@@ -651,6 +683,7 @@
           <input id="propFontSize" type="number" min="8" max="48" value="${el.fontSize||12}">
           <button id="propBold" class="${el.bold? 'primary':'gray'}">B</button>
           <button id="propItalic" class="${el.italic? 'primary':'gray'}"><i>I</i></button>
+          ${el.type==='image' ? '<button id="propImgReplace" class="gray">Bild wechseln</button>' : ''}
         </div>`;
 
       $('#propText').addEventListener('input', e=>{ el.text = e.target.value; renderSVG(); });
@@ -661,6 +694,20 @@
       $('#propFontSize').addEventListener('input', e=>{ el.fontSize = parseInt(e.target.value)||12; renderSVG(); });
       $('#propBold').addEventListener('click', ()=>{ el.bold = !el.bold; renderProps(); renderSVG(); });
       $('#propItalic').addEventListener('click', ()=>{ el.italic = !el.italic; renderProps(); renderSVG(); });
+      const replaceBtn = document.getElementById('propImgReplace');
+      if (replaceBtn){
+        replaceBtn.addEventListener('click', ()=>{
+          const inp = document.createElement('input');
+          inp.type='file'; inp.accept='image/*';
+          inp.onchange = ev=>{
+            const file = ev.target.files?.[0]; if(!file) return;
+            const fr = new FileReader();
+            fr.onload = () => { el.src = fr.result; renderSVG(); };
+            fr.readAsDataURL(file);
+          };
+          inp.click();
+        });
+      }
     }
 
     function renderAll(){
@@ -711,16 +758,39 @@
     // ======= Actions =======
     function addElement(type){
       const cfg = elementTypes[type]; if (!cfg) return;
-      const el = {
-        id: genId(), type,
-        x: 100, y: 100, width: 120, height: 60,
-        text: i18n(cfg.nameKey), color: state.currentColor || cfg.color,
-        font: state.currentFont, fontSize: state.currentFontSize,
-        bold:false, italic:false, column:1
-      };
-      state.elements.push(el);
-      state.selectedElement = el.id;
-      renderAll();
+      if (type === 'image'){
+        const input = document.getElementById('imgInput'); if(!input) return;
+        input.onchange = ev=>{
+          const file = ev.target.files?.[0]; if(!file) return;
+          const fr = new FileReader();
+          fr.onload = ()=>{
+            const img = new Image(); img.onload = ()=>{
+              const maxW = 240; const scale = Math.min(1, maxW / img.width);
+              const el = {
+                id: genId(), type:'image', src: fr.result,
+                x: 100, y: 100, width: Math.max(60, Math.round(img.width*scale)), height: Math.max(40, Math.round(img.height*scale)),
+                text: '', color: '#ffffff', font: state.currentFont, fontSize: state.currentFontSize, bold:false, italic:false, column:1
+              };
+              state.elements.push(el); state.selectedElement = el.id; renderAll();
+            };
+            img.src = fr.result;
+          };
+          fr.readAsDataURL(file);
+          ev.target.value='';
+        };
+        input.click();
+      } else {
+        const el = {
+          id: genId(), type,
+          x: 100, y: 100, width: 120, height: 60,
+          text: i18n(cfg.nameKey), color: state.currentColor || cfg.color,
+          font: state.currentFont, fontSize: state.currentFontSize,
+          bold:false, italic:false, column:1
+        };
+        state.elements.push(el);
+        state.selectedElement = el.id;
+        renderAll();
+      }
     }
 
     function deleteElement(id){
@@ -785,18 +855,22 @@
     $('#fileInput').addEventListener('change', e=>{
       const f = e.target.files?.[0]; if (!f) return; const r = new FileReader();
       r.onload = ev=>{
-        try{
-          const data = JSON.parse(ev.target.result);
-          if (data.elements && data.connections){
-            state.elements = data.elements; state.connections = data.connections; if (data.columns) state.columns = data.columns;
-            state.selectedElement = null; renderAll();
-          } else alert(i18n('alertInvalidFile'));
-        }catch(err){ alert(i18n('alertLoadError')); console.error(err); }
+        let data = null;
+        try { data = JSON.parse(ev.target.result); }
+        catch(err){ alert(i18n('alertLoadError')); console.error(err); return; }
+        if (data && (Array.isArray(data.elements) || Array.isArray(data.connections))){
+          // Use robust loader that normalizes fields and triggers renders
+          applyFlowJson(data);
+        } else {
+          alert(i18n('alertInvalidFile'));
+        }
       }; r.readAsText(f); e.target.value='';
     });
 
     const aiEnableEl = $('#aiEnable');
     if (aiEnableEl) aiEnableEl.addEventListener('change', ()=>{ state.aiEnabled = aiEnableEl.checked; updateToolbarStates(); });
+    const addImgBtn = document.getElementById('addImgBtn');
+    if (addImgBtn) addImgBtn.addEventListener('click', ()=> addElement('image'));
 
     document.addEventListener('keydown', e=>{
       if (e.ctrlKey || e.metaKey){
@@ -1020,6 +1094,7 @@
           height: Number.isFinite(Number(e.height)) ? Number(e.height) : 60,
           x: Number.isFinite(e.x) ? Number(e.x) : null,
           y: Number.isFinite(e.y) ? Number(e.y) : null,
+          src: (typeof e.src === 'string' && e.src) ? e.src : undefined,
           lane
         };
       });
@@ -1030,7 +1105,11 @@
 
       autoLayoutIfNeeded();
       state.selectedElement = null;
+      // Rebuild the columns toolbar so its inputs bind to the new objects
+      renderColumnsBar();
       renderAll();
+      // Ensure paint after file load even if browser batches renders
+      setTimeout(()=>renderAll(), 0);
     }
 
     function normalizeType(t){
@@ -1041,6 +1120,7 @@
       if (s.includes('data')) return 'database';
       if (s.includes('wait') || s.includes('delay')) return 'wait';
       if (s.includes('manual')) return 'manual';
+      if (s.includes('image') || s.includes('img') || s.includes('bild')) return 'image';
       if (s.includes('connector') || s==='conn') return 'connector';
       return 'process';
     }
@@ -1080,6 +1160,8 @@
     renderColumnsBar();
     setLanguage('de'); // Initialize with default language
     renderAll();
+    // In rare cases first paint can be delayed; force a follow-up render next frame
+    requestAnimationFrame(()=>renderAll());
 
     (function(){
       const bar = document.getElementById('aiBar');
