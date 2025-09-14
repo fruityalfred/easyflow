@@ -45,9 +45,12 @@
     .col-item input[type="text"] { width: 120px; }
     .col-item input[type="number"] { width: 60px; }
     .canvas-wrap { position: relative; flex: 1; min-height: 0; }
-    #columnsBg { position:absolute; inset:0; display:flex; z-index:1; }
-    .col-bg { border-right: 1px solid #cfd4e0; display:flex; align-items:flex-start; justify-content:center; padding-top:8px; }
+    #columnsBg { position:absolute; inset:0; display:flex; z-index:1; pointer-events:none; }
+    #columnHandles { position:absolute; inset:0; z-index:20; pointer-events:none; }
+    .col-bg { position:relative; border-right: 1px solid #cfd4e0; display:flex; align-items:flex-start; justify-content:center; padding-top:8px; }
     .col-bg > span { font-size:12px; color:#555; background:#fff; padding: 2px 6px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    .col-resizer { position:absolute; top:0; width:10px; height:100%; cursor:col-resize; z-index:50; pointer-events:auto; }
+    .col-resizer::after { content:""; position:absolute; top:0; bottom:0; left:50%; width:2px; transform:translateX(-50%); background: rgba(0,0,0,.18); border-radius:1px; }
     #canvas { position:absolute; inset:0; width:100%; height:100%; z-index:10; }
     .hint { position:absolute; top:12px; left:12px; background:#dbeafe; color:#1e40af; border:1px solid #93c5fd; padding:6px 10px; border-radius:8px; font-size:12px; z-index:20; }
     .status { position:absolute; top:12px; right:12px; background:#f3f4f6; color:#374151; border:1px solid var(--border); padding:6px 10px; border-radius:8px; font-size:12px; z-index:20; }
@@ -146,6 +149,7 @@
   <div class="canvas-wrap">
     <div id="connectHint" class="hint" style="display:none;"></div>
     <div id="columnsBg"></div>
+    <div id="columnHandles"></div>
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
       </svg>
   </div>
@@ -198,6 +202,7 @@
         statusAIFailed: 'Fehler beim Laden.',
         defaultColName: 'Spalte',
         defaultNodeName: 'Knoten',
+        equalize: 'Alle gleich',
         aiSampleText: `ITIL-angelehnter Request Flow:\n- Nutzer stellt Service Request im Portal ein (Start)\n- 1st Level klassifiziert und prüft\n- Entscheidung: Incident oder Service Request?\n  - Wenn Incident: Incident-Process, Workaround, Escalation, Abschluss\n  - Wenn Service Request: Genehmigung durch Kostenstellenleiter\n- Umsetzung durch Field IT\n- Dokumentation & Abschlussbericht\n- Knowledge Update & Review (Ende)`,
         aiPrompt: `Erzeuge *ausschließlich* valides JSON, keine Erklärtexte, keine Markdown-Codeblöcke. Schema:\n{\n  \"version\": \"1.0\",\n  \"columns\": [ { \"id\": number, \"name\": string, \"flex\": number, \"color\": string } ],\n  \"elements\": [\n    { \"id\": string (oder leer), \"type\": \"start\"|\"process\"|\"decision\"|\"document\"|\"database\"|\"manual\"|\"wait\"|\"connector\",\n      \"text\": string,\n      \"lane\": string (Spaltenname),\n      \"width\"?: number, \"height\"?: number,\n      \"x\"?: number, \"y\"?: number\n    }\n  ],\n  \"connections\": [ { \"from\": string, \"to\": string, \"mode\"?: \"auto\"|\"horizontal\"|\"vertical\" } ]\n}\nRegeln: 1) IDs, wenn leer, einfach generisch lassen (wir vergeben sie). 2) *Kein* Freitext außerhalb des JSON. 3) Lane-Namen müssen den Spaltennamen entsprechen. 4) Wenn Position (x,y) fehlt: nur lane setzen.\n\nOrganisation:\n{orgText}`
       },
@@ -244,6 +249,7 @@
         statusAIFailed: 'Error during loading.',
         defaultColName: 'Column',
         defaultNodeName: 'Node',
+        equalize: 'Equalize',
         aiSampleText: `ITIL-inspired Request Flow:\n- User submits a Service Request in the portal (Start)\n- 1st Level classifies and checks it\n- Decision: Is it an Incident or a Service Request?\n  - If Incident: Incident Process, Workaround, Escalation, Closure\n  - If Service Request: Approval by cost center manager\n- Implementation by Field IT\n- Documentation & Final Report\n- Knowledge Update & Review (End)`,
         aiPrompt: `Generate *only* valid JSON, no explanatory text, no markdown code blocks. Schema:\n{\n  \"version\": \"1.0\",\n  \"columns\": [ { \"id\": number, \"name\": string, \"flex\": number, \"color\": string } ],\n  \"elements\": [\n    { \"id\": string (or empty), \"type\": \"start\"|\"process\"|\"decision\"|\"document\"|\"database\"|\"manual\"|\"wait\"|\"connector\",\n      \"text\": string,\n      \"lane\": string (column name),\n      \"width\"?: number, \"height\"?: number,\n      \"x\"?: number, \"y\"?: number\n    }\n  ],\n  \"connections\": [ { \"from\": string, \"to\": string, \"mode\"?: \"auto\"|\"horizontal\"|\"vertical\" } ]\n}\nRules: 1) If IDs are empty, just leave them (we assign them). 2) *No* free text outside the JSON. 3) Lane names must match the column names. 4) If position (x,y) is missing: just set the lane.\n\nOrganization:\n{orgText}`
       }
@@ -277,7 +283,11 @@
       currentFontSize: 12,
       currentColor: '#3b82f6',
       aiEnabled: false,
+      columnsBaseTotalFlex: null,
     };
+
+    // Drag state for column resizing
+    let colDrag = null; // { leftIdx, rightIdx, startX, bgWidth, totalFlex, leftStartFlex, rightStartFlex }
 
     const elementTypes = {
       start:     { nameKey: 'elStart',     shape: 'oval',     color: '#10b981' },
@@ -369,25 +379,43 @@
         const displayName = col.customName ?? i18n(col.nameKey);
         item.innerHTML = `
           <input type="text" value="${escapeHtml(displayName)}">
-          <input type="number" min="0" value="${col.flex}">
           <input type="color" value="${col.color}" style="width:26px;height:26px;">
         `;
-        const [nameInput, flexInput, colorInput] = item.querySelectorAll('input');
+        const [nameInput, colorInput] = item.querySelectorAll('input');
         nameInput.addEventListener('input', e=>{ col.customName = e.target.value; renderColumnsBg(); });
-        flexInput.addEventListener('input', e=>{ col.flex = parseInt(e.target.value)||0; renderColumnsBg(); });
         colorInput.addEventListener('input', e=>{ col.color = e.target.value; renderColumnsBg(); });
         bar.appendChild(item);
+      }
+      const eqBtn = document.createElement('button');
+      eqBtn.className = 'gray';
+      eqBtn.textContent = i18n('equalize');
+      eqBtn.title = i18n('equalize');
+      eqBtn.addEventListener('click', equalizeColumns);
+      bar.appendChild(eqBtn);
+    }
+
+    function ensureFlexBase(){
+      const vis = state.columns.filter(c=>c.flex>0);
+      const sum = vis.reduce((s,c)=>s+c.flex,0);
+      if (!state.columnsBaseTotalFlex || state.columnsBaseTotalFlex <= 0){
+        state.columnsBaseTotalFlex = sum || vis.length || 1;
       }
     }
 
     function renderColumnsBg(){
       const bg = $('#columnsBg');
       bg.innerHTML = '';
-      const vis = state.columns.filter(c=>c.flex>0);
-      const total = vis.reduce((s,c)=>s+c.flex,0) || 1;
-      for (const col of state.columns){
-        if (col.flex === 0) continue;
-        const w = (col.flex/total)*100;
+      const handles = $('#columnHandles');
+      if (handles) handles.innerHTML = '';
+      const visible = state.columns.map((c,idx)=> ({...c, _idx: idx})).filter(c=>c.flex>0);
+      ensureFlexBase();
+      const baseTotal = state.columnsBaseTotalFlex || visible.reduce((s,c)=>s+c.flex,0) || 1;
+
+      // Draw columns
+      const widths = [];
+      for (const col of visible){
+        const w = (col.flex/baseTotal)*100;
+        widths.push(w);
         const div = document.createElement('div');
         div.className = 'col-bg';
         div.style.width = w + '%';
@@ -397,6 +425,74 @@
         div.appendChild(badge);
         bg.appendChild(div);
       }
+
+      // Add a resizer at the right edge of each column (independent resize)
+      if (handles){
+        let cum = 0;
+        for (let vi = 0; vi < visible.length; vi++){
+          cum += widths[vi] || 0;
+          const idx = visible[vi]._idx;
+          const handle = document.createElement('div');
+          handle.className = 'col-resizer';
+          handle.title = 'Resize column';
+          handle.style.left = `calc(${cum}% - 5px)`;
+          handle.style.right = 'auto';
+          handle.style.pointerEvents = 'auto';
+          handle.addEventListener('pointerdown', (e)=>{
+            e.preventDefault();
+            const rect = bg.getBoundingClientRect();
+            const othersSum = state.columns
+              .filter((c,ii)=> c.flex>0 && ii!==idx)
+              .reduce((s,c)=> s + c.flex, 0);
+            colDrag = {
+              targetIdx: idx,
+              startX: e.clientX,
+              bgWidth: rect.width,
+              baseTotal: state.columnsBaseTotalFlex,
+              startFlex: state.columns[idx].flex,
+              othersSum,
+            };
+            document.body.style.userSelect = 'none';
+            window.addEventListener('pointermove', onColResizeMove);
+            window.addEventListener('pointerup', onColResizeEnd, { once: true });
+          });
+          handle.addEventListener('dblclick', equalizeColumns);
+          handles.appendChild(handle);
+        }
+      }
+
+    function equalizeColumns(){
+      const vis = state.columns.filter(c=>c.flex>0);
+      if (!vis.length) return;
+      for (const c of vis) c.flex = 1;
+      state.columnsBaseTotalFlex = vis.length; // Reset base so sum fills 100%
+      renderColumnsBg();
+      renderColumnsBar();
+    }
+    }
+
+    function onColResizeMove(e){
+      if (!colDrag) return;
+      const dx = e.clientX - colDrag.startX;
+      if (colDrag.bgWidth <= 0) return;
+      const deltaPct = (dx / colDrag.bgWidth) * 100;
+      const denom = colDrag.baseTotal || 1;
+      const minPct = 5; // minimal 5% visual width
+      const minFlex = (minPct/100) * denom;
+      const deltaFlex = (deltaPct/100) * denom;
+
+      let newFlex = colDrag.startFlex + deltaFlex;
+      const maxFlex = Math.max(minFlex, (denom - (colDrag.othersSum ?? 0)));
+      newFlex = Math.max(minFlex, Math.min(maxFlex, newFlex));
+      state.columns[colDrag.targetIdx].flex = newFlex;
+      renderColumnsBg();
+    }
+
+    function onColResizeEnd(){
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onColResizeMove);
+      colDrag = null;
+      renderColumnsBar();
     }
 
     function svgEl(tag, attrs={}, children=[]) {
@@ -426,8 +522,8 @@
       }
 
       for (const [i,g] of state.guideLines.entries()){
-        if (g.type === 'vertical') svg.appendChild(svgEl('line', { x1:g.position, y1:0, x2:g.position, y2:'100%', stroke:g.color, 'stroke-width':1, 'stroke-dasharray':'5,5', opacity:.8 }));
-        else svg.appendChild(svgEl('line', { x1:0, y1:g.position, x2:'100%', y2:g.position, stroke:g.color, 'stroke-width':1, 'stroke-dasharray':'5,5', opacity:.8 }));
+        if (g.type === 'vertical') svg.appendChild(svgEl('line', { x1:g.position, y1:0, x2:g.position, y2:'100%', stroke:g.color, 'stroke-width':1, 'stroke-dasharray':'5,5', opacity:.75, 'pointer-events':'none' }));
+        else svg.appendChild(svgEl('line', { x1:0, y1:g.position, x2:'100%', y2:g.position, stroke:g.color, 'stroke-width':1, 'stroke-dasharray':'5,5', opacity:.75, 'pointer-events':'none' }));
       }
 
       const defs2 = svgEl('defs');
@@ -493,9 +589,20 @@
         }
 
         if (state.selectedElement===el.id){
-          const handle = (x,y,cursor,name)=>svgEl('rect',{ x, y, width:20, height:20, fill: '#ff0000', stroke:'#fff', 'stroke-width':3, style:`cursor:${cursor}`, 'data-element-id': el.id, 'data-resize-handle': name });
-          g.appendChild(handle(-10,-10,'nwse-resize','nw')); g.appendChild(handle(w-10,-10,'nesw-resize','ne'));
-          g.appendChild(handle(-10,h-10,'nesw-resize','sw')); g.appendChild(handle(w-10,h-10,'nwse-resize','se'));
+          const HANDLE_SIZE = 12;
+          const HALF = HANDLE_SIZE/2;
+          const handle = (x,y,cursor,name)=>svgEl('rect',{
+            x, y, width: HANDLE_SIZE, height: HANDLE_SIZE,
+            fill: '#ffffff', 'fill-opacity': 0.9,
+            stroke: '#2563eb', 'stroke-width': 1.5,
+            rx: 2, ry: 2,
+            style:`cursor:${cursor}`,
+            'data-element-id': el.id, 'data-resize-handle': name
+          });
+          g.appendChild(handle(-HALF, -HALF, 'nwse-resize','nw'));
+          g.appendChild(handle(w-HALF, -HALF, 'nesw-resize','ne'));
+          g.appendChild(handle(-HALF, h-HALF, 'nesw-resize','sw'));
+          g.appendChild(handle(w-HALF, h-HALF, 'nwse-resize','se'));
         }
 
         if (state.connectionStart===el.id){
@@ -732,6 +839,9 @@
           case 'ne': newW = Math.max(50, (el.width||120) + dx); newH = Math.max(30, (el.height||60) - dy); newY = el.y + dy; break;
           case 'nw': newW = Math.max(50, (el.width||120) - dx); newH = Math.max(30, (el.height||60) - dy); newX = el.x + dx; newY = el.y + dy; break;
         }
+        // Show guides while resizing as well
+        const dragged = { ...el, x:newX, y:newY, width:newW, height:newH };
+        state.guideLines = generateGuideLines(dragged);
         el.x = newX; el.y = newY; el.width = newW; el.height = newH;
         state.dragStart = { x: p.x, y: p.y };
         renderSVG(); renderProps();
