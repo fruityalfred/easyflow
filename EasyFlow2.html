@@ -261,11 +261,16 @@
       elements: [],
       connections: [],
       selectedElement: null,
+      selectedElements: [],
       copiedElement: null,
       isDragging: false,
+      isDraggingGroup: false,
       isResizing: false,
       resizeHandle: null,
       dragStart: { x:0, y:0 },
+      groupStartPos: null, // Map(id -> {x,y}) during group drag
+      isMarquee: false,
+      marqueeRect: null, // {x,y,w,h}
       isConnecting: false,
       connectionStart: null,
       connectionMode: 'auto',
@@ -562,7 +567,8 @@
       for (const el of state.elements){
         const w = el.width ?? 120, h = el.height ?? 60;
         const g = svgEl('g', { transform: `translate(${el.x}, ${el.y})` });
-        const common = { fill: el.color, stroke: state.selectedElement===el.id? '#ef4444' : '#374151', 'stroke-width': state.selectedElement===el.id? 3 : 1, style:'cursor:move', 'data-element-id': el.id };
+        const isSel = state.selectedElement===el.id || (state.selectedElements||[]).includes(el.id);
+        const common = { fill: el.color, stroke: isSel? '#ef4444' : '#374151', 'stroke-width': isSel? 3 : 1, style:'cursor:move', 'data-element-id': el.id };
 
         switch ((elementTypes[el.type]?.shape)||'rectangle'){
           case 'oval': g.appendChild(svgEl('ellipse', { cx:w/2, cy:h/2, rx:w/2, ry:h/2, ...common })); break;
@@ -616,6 +622,11 @@
           g.appendChild(del);
         }
         svg.appendChild(g);
+      }
+      // Draw marquee selection rectangle on top
+      if (state.isMarquee && state.marqueeRect){
+        const r = state.marqueeRect;
+        svg.appendChild(svgEl('rect', { x:r.x, y:r.y, width:r.w, height:r.h, fill:'#3b82f6', 'fill-opacity':0.08, stroke:'#2563eb', 'stroke-dasharray':'4,4', 'stroke-width':1, 'pointer-events':'none' }));
       }
     }
 
@@ -818,9 +829,32 @@
             state.connections.push({ id: genId(), from: state.connectionStart, to: elId, color: '#374151', mode: state.connectionMode });
             state.connectionStart = null; renderAll();
           }
-        } else { state.selectedElement = elId; state.isDragging = true; renderAll(); }
+        } else {
+          // SHIFT toggles membership in multi-selection
+          if (e.shiftKey){
+            const idx = state.selectedElements.indexOf(elId);
+            if (idx >= 0) state.selectedElements.splice(idx,1); else state.selectedElements.push(elId);
+            state.selectedElement = state.selectedElements.length === 1 ? state.selectedElements[0] : null;
+            renderAll();
+          } else if ((state.selectedElements||[]).includes(elId)){
+            // start group drag
+            state.isDraggingGroup = true;
+            state.groupStartPos = new Map(state.selectedElements.map(id=>{
+              const el = state.elements.find(x=>x.id===id); return [id,{x:el.x,y:el.y}];
+            }));
+            renderAll();
+          } else {
+            // single selection drag
+            state.selectedElements = [elId];
+            state.selectedElement = elId;
+            state.isDragging = true; renderAll();
+          }
+        }
       } else if (isBg){
-        state.selectedElement = null; state.connectionStart = null; state.isDragging = false; state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderAll();
+        // Start marquee selection
+        state.selectedElement = null; state.connectionStart = null; state.isDragging = false; state.isResizing = false; state.resizeHandle = null; state.guideLines = [];
+        state.isMarquee = true; state.marqueeRect = { x: p.x, y: p.y, w: 0, h: 0 };
+        renderAll();
       }
       e.currentTarget.setPointerCapture(e.pointerId); pointerCapturing = true;
     });
@@ -845,6 +879,27 @@
         el.x = newX; el.y = newY; el.width = newW; el.height = newH;
         state.dragStart = { x: p.x, y: p.y };
         renderSVG(); renderProps();
+      } else if (state.isDraggingGroup && (state.selectedElements||[]).length){
+        // move group based on stored start positions
+        for (const id of state.selectedElements){
+          const el = state.elements.find(x=>x.id===id); if (!el) continue;
+          const start = state.groupStartPos?.get(id) || {x:el.x, y:el.y};
+          el.x = snapToGrid(start.x + dx); el.y = snapToGrid(start.y + dy);
+        }
+        renderSVG();
+      } else if (state.isMarquee && state.marqueeRect){
+        const x1 = Math.min(state.dragStart.x, p.x), y1 = Math.min(state.dragStart.y, p.y);
+        const x2 = Math.max(state.dragStart.x, p.x), y2 = Math.max(state.dragStart.y, p.y);
+        state.marqueeRect = { x: x1, y: y1, w: x2-x1, h: y2-y1 };
+        // update selection
+        const sel = [];
+        for (const el of state.elements){
+          const w = el.width||120, h = el.height||60;
+          const ex1 = el.x, ey1 = el.y, ex2 = el.x + w, ey2 = el.y + h;
+          if (ex2 >= x1 && ex1 <= x2 && ey2 >= y1 && ey1 <= y2){ sel.push(el.id); }
+        }
+        state.selectedElements = sel; state.selectedElement = sel.length===1? sel[0] : null;
+        renderSVG();
       } else if (state.isDragging && state.selectedElement){
         const el = state.elements.find(x=>x.id===state.selectedElement); if (!el) return;
         const newX = snapToGrid(el.x + dx); const newY = snapToGrid(el.y + dy);
@@ -858,7 +913,12 @@
     document.addEventListener('pointerup', e=>{
       if (!pointerCapturing) return; pointerCapturing = false;
       const svg = $('#canvas'); try{ svg.releasePointerCapture(e.pointerId); }catch{}
-      state.isDragging = false; state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderSVG();
+      if (state.isMarquee && state.marqueeRect && state.marqueeRect.w < 2 && state.marqueeRect.h < 2){
+        // tiny click on bg clears selection
+        state.selectedElements = []; state.selectedElement = null;
+      }
+      state.isDragging = false; state.isDraggingGroup = false; state.isMarquee = false; state.marqueeRect = null; state.groupStartPos = null;
+      state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderSVG();
     });
 
     // ======= AI Flow (LLM Integration) =======
