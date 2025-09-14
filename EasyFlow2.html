@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FruityAlfred Software – EasyFlow</title>
+  <style>
+    :root {
+      --bg: #f7f7fb;
+      --panel: #ffffff;
+      --border: #dadde6;
+      --text: #222;
+      --muted: #667085;
+      --primary: #2563eb;
+      --primary-600: #1d4ed8;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--text); background: var(--bg);
+      display: flex; flex-direction: column; height: 100vh;
+    }
+    .toolbar, .columns-bar, .properties { background: var(--panel); border: 1px solid var(--border); }
+    .toolbar { display:flex; flex-wrap: wrap; gap: 8px; align-items:center; padding: 10px 12px; border-left: 0; border-right: 0; }
+    .title { font-weight: 700; margin-right: 8px; }
+    .group { display:flex; gap: 8px; align-items: center; }
+    .divider { width:1px; height:28px; background: var(--border); margin: 0 8px; }
+    button, select, input[type="number"], input[type="text"] {
+      height: 32px; border-radius: 8px; border: 1px solid var(--border);
+      background: #f3f4f6; color: #111; padding: 0 10px; font-size: 13px;
+    }
+    button { cursor: pointer; }
+    button.primary { background: var(--primary); color: #fff; border-color: var(--primary-600); }
+    button.primary:hover { background: var(--primary-600); }
+    button.success { background: var(--success); color:#fff; border-color: #0d966c; }
+    button.warn { background: var(--warn); color:#111; }
+    button.gray { background: #e5e7eb; }
+    button[disabled] { opacity: .6; cursor: not-allowed; }
+    .columns-bar { padding: 8px 12px; border-left: 0; border-right: 0; display:flex; gap: 14px; align-items:center; flex-wrap: wrap; }
+    .col-item { display:flex; gap:6px; align-items:center; padding: 4px 6px; border:1px dashed var(--border); border-radius:8px; }
+    .col-item input[type="text"] { width: 120px; }
+    .col-item input[type="number"] { width: 60px; }
+    .canvas-wrap { position: relative; flex: 1; min-height: 0; }
+    #columnsBg { position:absolute; inset:0; display:flex; z-index:1; }
+    .col-bg { border-right: 1px solid #cfd4e0; display:flex; align-items:flex-start; justify-content:center; padding-top:8px; }
+    .col-bg > span { font-size:12px; color:#555; background:#fff; padding: 2px 6px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    #canvas { position:absolute; inset:0; width:100%; height:100%; z-index:10; }
+    .hint { position:absolute; top:12px; left:12px; background:#dbeafe; color:#1e40af; border:1px solid #93c5fd; padding:6px 10px; border-radius:8px; font-size:12px; z-index:20; }
+    .status { position:absolute; top:12px; right:12px; background:#f3f4f6; color:#374151; border:1px solid var(--border); padding:6px 10px; border-radius:8px; font-size:12px; z-index:20; }
+    .properties { padding: 10px 12px; border-left: 0; border-right: 0; }
+    .prop-grid { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .prop-grid input[type="number"] { width: 70px; }
+    .badge { display:inline-flex; align-items:center; gap:6px; height:28px; padding: 0 10px; border-radius:999px; font-size:12px; border:1px solid var(--border); background:#fff; }
+    .sr-only { position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden; }
+
+    /* AI Import Bar */
+    .ai-bar{display:none;flex-wrap:wrap;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-left:0;border-right:0;background:var(--panel)}
+    .ai-bar textarea{flex:1;min-width:280px;height:80px;padding:8px;border-radius:8px;border:1px solid var(--border);font-family:inherit;font-size:13px}
+    .ai-bar input[type="password"], .ai-bar select{height:32px;border-radius:8px;border:1px solid var(--border);padding:0 10px}
+    .ai-bar .muted{color:var(--muted);font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="toolbar" id="toolbar">
+    <span class="title">EasyFlow Canvas</span>
+
+    <div class="group" id="elementButtons"></div>
+
+    <div class="divider"></div>
+
+    <div class="group">
+      <button id="connectBtn" class="gray" data-translate-key="connect" data-translate-key-title="connectTitle">Verbinden</button>
+      <select id="connectionMode">
+        <option value="auto">Auto</option>
+        <option value="horizontal">Horizontal</option>
+        <option value="vertical">Vertical</option>
+      </select>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="group">
+      <button id="gridToggle" class="gray" title="Grid on/off">Grid</button>
+      <button id="guidesToggle" class="gray" title="Guides on/off">Guides</button>
+      <label class="badge">Grid Size <input id="gridSize" type="number" min="10" max="50" value="20"></label>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="group">
+      <button id="copyBtn" class="gray" title="Copy (Ctrl+C)">Copy</button>
+      <button id="pasteBtn" class="gray" title="Paste (Ctrl+V)" disabled>Paste</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="group">
+      <button id="saveBtn" class="warn" title="Save (Ctrl+S)">Save</button>
+      <button id="loadBtn" class="warn">Load</button>
+      <input id="fileInput" class="sr-only" type="file" accept=".json" />
+      <button id="exportSvgBtn" class="success">Export SVG</button>
+      <button id="resetBtn" class="danger" data-translate-key="reset" data-translate-key-title="resetTitle">Reset</button>
+    </div>
+
+    <div class="group">
+      <label class="badge"><input id="aiEnable" type="checkbox"> <span data-translate-key="aiAssistant">AI-Assistent</span></label>
+    </div>
+        
+    <div class="divider"></div>
+        
+    <div class="group">
+      <label class="badge" style="gap: 4px;">
+        <span data-translate-key="language">Sprache</span>:
+        <select id="langSwitch" style="border:0; background:transparent; height: auto; padding: 0;">
+          <option value="de">DE</option>
+          <option value="en">EN</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="group" style="color:#6b7280;font-size:12px;" data-translate-key="hintText">💡 Ctrl+C/V Copy • Delete löscht • Verbinden bleibt aktiv</div>
+  </div>
+
+  <div class="ai-bar" id="aiBar">
+    <textarea id="aiInput" data-translate-key-placeholder="aiInputPlaceholder"></textarea>
+    <div style="display:flex;flex-direction:column;gap:8px;min-width:260px">
+      <input id="aiKey" type="password" data-translate-key-placeholder="apiKeyPlaceholder">
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="aiModel">
+          <option value="gpt-4o-mini">gpt-4o-mini <span data-translate-key="recommended">(empfohlen)</span></option>
+          <option value="gpt-4o">gpt-4o</option>
+        </select>
+        <button id="aiGenerateBtn" class="primary" data-translate-key="generateFromAI">Flow aus KI</button>
+        <button id="aiSampleBtn" class="gray" data-translate-key="example" data-translate-key-title="loadExample">Beispiel</button>
+      </div>
+      <div class="muted" data-translate-key="proxyWarning">Für Produktion bitte Proxy nutzen – Key niemals im Client ausliefern.</div>
+    </div>
+  </div>
+
+  <div class="columns-bar" id="columnsBar"></div>
+
+  <div class="canvas-wrap">
+    <div id="connectHint" class="hint" style="display:none;"></div>
+    <div id="columnsBg"></div>
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+      </svg>
+  </div>
+
+  <div class="properties" id="props" style="display:none;"></div>
+
+  <script>
+    // ======= i18n & Translations =======
+    const translations = {
+      de: {
+        connect: 'Verbinden',
+        connectTitle: 'Verbinden an/aus',
+        aiAssistant: 'AI-Assistent',
+        language: 'Sprache',
+        hintText: '💡 Ctrl+C/V Copy • Delete löscht • Verbinden bleibt aktiv',
+        aiInputPlaceholder: 'Beschreibe Organisation/Prozesse…\nBeispiel: User stellt Ticket → 1st Level klassifiziert → Entscheidung: Incident vs. Service Request → Genehmigung → Umsetzung → Abschluss & Review',
+        apiKeyPlaceholder: 'OpenAI API Key (nur Test – im Browser UNSICHER)',
+        recommended: '(empfohlen)',
+        generateFromAI: 'Flow aus KI',
+        loadExample: 'Beispiel laden',
+        example: 'Beispiel',
+        proxyWarning: 'Für Produktion bitte Proxy nutzen – Key niemals im Client ausliefern.',
+        columns: 'Spalten:',
+        statusDefault: 'Raster/Hilfslinien steuerbar • SVG-Export',
+        propTextPlaceholder: 'Text eingeben...',
+        colAnfrage: 'Anfrage',
+        colBewertung: 'Bewertung',
+        colGenehmigung: 'Genehmigung',
+        colUmsetzung: 'Umsetzung',
+        elStart: 'Start/Ende',
+        elProcess: 'Prozess',
+        elDecision: 'Entscheidung',
+        elDocument: 'Dokument',
+        elDatabase: 'Datenbank',
+        elManual: 'Manuell',
+        elWait: 'Wartezeit',
+        reset: 'Reset',
+        resetTitle: 'Alles zurücksetzen',
+        confirmReset: 'Möchten Sie wirklich die gesamte Arbeitsfläche zurücksetzen? Alle Änderungen gehen verloren.',
+        elConnector: 'Verbinder',
+        connectHintTarget: 'Ziel-Element wählen (Modus bleibt aktiv)',
+        connectHintStart: 'Start-Element wählen',
+        alertInvalidFile: 'Ungültige Datei',
+        alertLoadError: 'Fehler beim Laden',
+        alertAINoInput: 'Bitte eine Organisationsbeschreibung eingeben.',
+        alertAINoKey: 'Bitte einen OpenAI API Key eingeben (nur zu Testzwecken im Browser).',
+        alertGenericError: 'Fehler: ',
+        statusAISending: 'Sende an OpenAI…',
+        statusAILoaded: 'Flow geladen.',
+        statusAIFailed: 'Fehler beim Laden.',
+        defaultColName: 'Spalte',
+        defaultNodeName: 'Knoten',
+        aiSampleText: `ITIL-angelehnter Request Flow:\n- Nutzer stellt Service Request im Portal ein (Start)\n- 1st Level klassifiziert und prüft\n- Entscheidung: Incident oder Service Request?\n  - Wenn Incident: Incident-Process, Workaround, Escalation, Abschluss\n  - Wenn Service Request: Genehmigung durch Kostenstellenleiter\n- Umsetzung durch Field IT\n- Dokumentation & Abschlussbericht\n- Knowledge Update & Review (Ende)`,
+        aiPrompt: `Erzeuge *ausschließlich* valides JSON, keine Erklärtexte, keine Markdown-Codeblöcke. Schema:\n{\n  \"version\": \"1.0\",\n  \"columns\": [ { \"id\": number, \"name\": string, \"flex\": number, \"color\": string } ],\n  \"elements\": [\n    { \"id\": string (oder leer), \"type\": \"start\"|\"process\"|\"decision\"|\"document\"|\"database\"|\"manual\"|\"wait\"|\"connector\",\n      \"text\": string,\n      \"lane\": string (Spaltenname),\n      \"width\"?: number, \"height\"?: number,\n      \"x\"?: number, \"y\"?: number\n    }\n  ],\n  \"connections\": [ { \"from\": string, \"to\": string, \"mode\"?: \"auto\"|\"horizontal\"|\"vertical\" } ]\n}\nRegeln: 1) IDs, wenn leer, einfach generisch lassen (wir vergeben sie). 2) *Kein* Freitext außerhalb des JSON. 3) Lane-Namen müssen den Spaltennamen entsprechen. 4) Wenn Position (x,y) fehlt: nur lane setzen.\n\nOrganisation:\n{orgText}`
+      },
+      en: {
+        connect: 'Connect',
+        connectTitle: 'Toggle Connection Mode',
+        aiAssistant: 'AI Assistant',
+        language: 'Language',
+        hintText: '💡 Ctrl+C/V Copy • Del deletes • Connect mode stays active',
+        aiInputPlaceholder: 'Describe organization/processes…\nExample: User creates ticket → 1st Level classifies → Decision: Incident vs. Service Request → Approval → Implementation → Closure & Review',
+        apiKeyPlaceholder: 'OpenAI API Key (test only - INSECURE in browser)',
+        recommended: '(recommended)',
+        generateFromAI: 'Generate from AI',
+        loadExample: 'Load Example',
+        example: 'Example',
+        proxyWarning: 'For production, use a proxy – never expose keys on the client.',
+        columns: 'Columns:',
+        statusDefault: 'Grid/Guides controllable • SVG Export',
+        propTextPlaceholder: 'Enter text...',
+        colAnfrage: 'Request',
+        colBewertung: 'Triage',
+        colGenehmigung: 'Approval',
+        colUmsetzung: 'Implementation',
+        elStart: 'Start/End',
+        elProcess: 'Process',
+        elDecision: 'Decision',
+        elDocument: 'Document',
+        elDatabase: 'Database',
+        elManual: 'Manual Input',
+        elWait: 'Delay',
+        reset: 'Reset',
+        resetTitle: 'Reset entire canvas',
+        confirmReset: 'Are you sure you want to reset the entire canvas? All changes will be lost.',
+        elConnector: 'Connector',
+        connectHintTarget: 'Select target element (mode remains active)',
+        connectHintStart: 'Select starting element',
+        alertInvalidFile: 'Invalid file',
+        alertLoadError: 'Error while loading',
+        alertAINoInput: 'Please enter an organization description.',
+        alertAINoKey: 'Please enter an OpenAI API Key (for browser testing only).',
+        alertGenericError: 'Error: ',
+        statusAISending: 'Sending to OpenAI…',
+        statusAILoaded: 'Flow loaded.',
+        statusAIFailed: 'Error during loading.',
+        defaultColName: 'Column',
+        defaultNodeName: 'Node',
+        aiSampleText: `ITIL-inspired Request Flow:\n- User submits a Service Request in the portal (Start)\n- 1st Level classifies and checks it\n- Decision: Is it an Incident or a Service Request?\n  - If Incident: Incident Process, Workaround, Escalation, Closure\n  - If Service Request: Approval by cost center manager\n- Implementation by Field IT\n- Documentation & Final Report\n- Knowledge Update & Review (End)`,
+        aiPrompt: `Generate *only* valid JSON, no explanatory text, no markdown code blocks. Schema:\n{\n  \"version\": \"1.0\",\n  \"columns\": [ { \"id\": number, \"name\": string, \"flex\": number, \"color\": string } ],\n  \"elements\": [\n    { \"id\": string (or empty), \"type\": \"start\"|\"process\"|\"decision\"|\"document\"|\"database\"|\"manual\"|\"wait\"|\"connector\",\n      \"text\": string,\n      \"lane\": string (column name),\n      \"width\"?: number, \"height\"?: number,\n      \"x\"?: number, \"y\"?: number\n    }\n  ],\n  \"connections\": [ { \"from\": string, \"to\": string, \"mode\"?: \"auto\"|\"horizontal\"|\"vertical\" } ]\n}\nRules: 1) If IDs are empty, just leave them (we assign them). 2) *No* free text outside the JSON. 3) Lane names must match the column names. 4) If position (x,y) is missing: just set the lane.\n\nOrganization:\n{orgText}`
+      }
+    };
+    
+    // ======= State =======
+    const state = {
+      lang: 'de', // Current language
+      elements: [],
+      connections: [],
+      selectedElement: null,
+      copiedElement: null,
+      isDragging: false,
+      isResizing: false,
+      resizeHandle: null,
+      dragStart: { x:0, y:0 },
+      isConnecting: false,
+      connectionStart: null,
+      connectionMode: 'auto',
+      showGrid: false,
+      gridSize: 20,
+      showGuides: true,
+      guideLines: [],
+      columns: [
+        { id: 1, nameKey: 'colAnfrage', customName: null, flex: 1, color: '#f0f9ff' },
+        { id: 2, nameKey: 'colBewertung', customName: null, flex: 1, color: '#f0fdf4' },
+        { id: 3, nameKey: 'colGenehmigung', customName: null, flex: 1, color: '#fffbeb' },
+        { id: 4, nameKey: 'colUmsetzung', customName: null, flex: 1, color: '#fef2f2' }
+      ],
+      currentFont: 'Arial',
+      currentFontSize: 12,
+      currentColor: '#3b82f6',
+      aiEnabled: false,
+    };
+
+    const elementTypes = {
+      start:     { nameKey: 'elStart',     shape: 'oval',     color: '#10b981' },
+      process:   { nameKey: 'elProcess',   shape: 'rectangle',color: '#3b82f6' },
+      decision:  { nameKey: 'elDecision',  shape:'diamond',  color: '#f59e0b' },
+      document:  { nameKey: 'elDocument',  shape: 'document', color: '#8b5cf6' },
+      database:  { nameKey: 'elDatabase',  shape: 'database', color: '#06b6d4' },
+      manual:    { nameKey: 'elManual',    shape: 'trapezoid',color: '#ef4444' },
+      wait:      { nameKey: 'elWait',      shape: 'delay',    color: '#6b7280' },
+      connector: { nameKey: 'elConnector', shape: 'circle',   color: '#1f2937' }
+    };
+
+    const fonts = ['Arial','Helvetica','Times New Roman','Courier New','Verdana','Georgia'];
+
+    // ======= Utils =======
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    const NS = 'http://www.w3.org/2000/svg';
+    const genId = () => Math.random().toString(36).slice(2,11);
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const i18n = (key, fallback = '') => translations[state.lang]?.[key] || fallback || key;
+
+    function snapToGrid(v){ return state.showGrid ? Math.round(v / state.gridSize) * state.gridSize : v; }
+
+    function escapeHtml(str){
+      if (typeof str !== 'string') return '';
+      return str.replace(/[&<>"']/g, function(ch){
+        return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[ch];
+      });
+    }
+
+    function getColumnWidth(columnId){
+      const visible = state.columns.filter(c => c.flex > 0);
+      const total = visible.reduce((s,c)=>s+c.flex,0) || 1;
+      const col = state.columns.find(c=>c.id===columnId);
+      if (!col || col.flex===0) return 0;
+      return (col.flex/total) * 100;
+    }
+
+    function getConnectionPoints(el){
+      const w = el.width ?? 120; const h = el.height ?? 60;
+      return {
+        top:    { x: el.x + w/2, y: el.y },
+        bottom: { x: el.x + w/2, y: el.y + h },
+        left:   { x: el.x,       y: el.y + h/2 },
+        right:  { x: el.x + w,   y: el.y + h/2 },
+      };
+    }
+
+    function generateGuideLines(dragged){
+      if (!state.showGuides || !dragged) return [];
+      const guides = []; const thr = 5;
+      for (const el of state.elements){
+        if (el.id === dragged.id) continue;
+        const ew = el.width || 120, eh = el.height || 60;
+        const dw = dragged.width || 120, dh = dragged.height || 60;
+        // vertical
+        if (Math.abs(el.x - dragged.x) < thr) guides.push({type:'vertical', position: el.x, color:'#ff6b6b'});
+        if (Math.abs((el.x + ew/2) - (dragged.x + dw/2)) < thr) guides.push({type:'vertical', position: el.x + ew/2, color:'#ff6b6b'});
+        if (Math.abs((el.x + ew) - (dragged.x + dw)) < thr) guides.push({type:'vertical', position: el.x + ew, color:'#ff6b6b'});
+        // horizontal
+        if (Math.abs(el.y - dragged.y) < thr) guides.push({type:'horizontal', position: el.y, color:'#ff6b6b'});
+        if (Math.abs((el.y + eh/2) - (dragged.y + dh/2)) < thr) guides.push({type:'horizontal', position: el.y + eh/2, color:'#ff6b6b'});
+        if (Math.abs((el.y + eh) - (dragged.y + dh)) < thr) guides.push({type:'horizontal', position: el.y + eh, color:'#ff6b6b'});
+      }
+      return guides;
+    }
+
+    // ======= Rendering =======
+    function renderElementButtons(){
+      const wrap = $('#elementButtons');
+      wrap.innerHTML = '';
+      for (const [type, cfg] of Object.entries(elementTypes)){
+        const btn = document.createElement('button');
+        const name = i18n(cfg.nameKey);
+        btn.textContent = '+ ' + name;
+        btn.style.background = cfg.color; btn.style.color = '#fff'; btn.title = name;
+        btn.addEventListener('click', ()=> addElement(type));
+        wrap.appendChild(btn);
+      }
+    }
+
+    function renderColumnsBar(){
+      const bar = $('#columnsBar');
+      bar.innerHTML = `<span style="font-weight:600;">${i18n('columns')}</span>`;
+      for (const col of state.columns){
+        const item = document.createElement('div');
+        item.className = 'col-item';
+        const displayName = col.customName ?? i18n(col.nameKey);
+        item.innerHTML = `
+          <input type="text" value="${escapeHtml(displayName)}">
+          <input type="number" min="0" value="${col.flex}">
+          <input type="color" value="${col.color}" style="width:26px;height:26px;">
+        `;
+        const [nameInput, flexInput, colorInput] = item.querySelectorAll('input');
+        nameInput.addEventListener('input', e=>{ col.customName = e.target.value; renderColumnsBg(); });
+        flexInput.addEventListener('input', e=>{ col.flex = parseInt(e.target.value)||0; renderColumnsBg(); });
+        colorInput.addEventListener('input', e=>{ col.color = e.target.value; renderColumnsBg(); });
+        bar.appendChild(item);
+      }
+    }
+
+    function renderColumnsBg(){
+      const bg = $('#columnsBg');
+      bg.innerHTML = '';
+      const vis = state.columns.filter(c=>c.flex>0);
+      const total = vis.reduce((s,c)=>s+c.flex,0) || 1;
+      for (const col of state.columns){
+        if (col.flex === 0) continue;
+        const w = (col.flex/total)*100;
+        const div = document.createElement('div');
+        div.className = 'col-bg';
+        div.style.width = w + '%';
+        div.style.background = col.color;
+        const badge = document.createElement('span');
+        badge.textContent = col.customName ?? i18n(col.nameKey);
+        div.appendChild(badge);
+        bg.appendChild(div);
+      }
+    }
+
+    function svgEl(tag, attrs={}, children=[]) {
+      const el = document.createElementNS(NS, tag);
+      for (const [k,v] of Object.entries(attrs)){
+        if (v == null) continue;
+        el.setAttribute(k, String(v));
+      }
+      for (const c of children) el.appendChild(c);
+      return el;
+    }
+
+    function renderSVG(){
+      const svg = $('#canvas');
+      svg.innerHTML = '';
+
+      svg.appendChild(svgEl('rect', { width:'100%', height:'100%', fill:'transparent', 'data-bg':'1' }));
+
+      if (state.showGrid){
+        const defs = svgEl('defs');
+        const pat = svgEl('pattern', { id:'grid', width: state.gridSize, height: state.gridSize, patternUnits:'userSpaceOnUse' });
+        const path = svgEl('path', { d:`M ${state.gridSize} 0 L 0 0 0 ${state.gridSize}`, fill:'none', stroke:'#ddd', 'stroke-width':'0.5', opacity:'0.8' });
+        pat.appendChild(path);
+        defs.appendChild(pat);
+        svg.appendChild(defs);
+        svg.appendChild(svgEl('rect', { width:'100%', height:'100%', fill:'url(#grid)'}));
+      }
+
+      for (const [i,g] of state.guideLines.entries()){
+        if (g.type === 'vertical') svg.appendChild(svgEl('line', { x1:g.position, y1:0, x2:g.position, y2:'100%', stroke:g.color, 'stroke-width':1, 'stroke-dasharray':'5,5', opacity:.8 }));
+        else svg.appendChild(svgEl('line', { x1:0, y1:g.position, x2:'100%', y2:g.position, stroke:g.color, 'stroke-width':1, 'stroke-dasharray':'5,5', opacity:.8 }));
+      }
+
+      const defs2 = svgEl('defs');
+      const marker = svgEl('marker', { id:'arrowhead', markerWidth:10, markerHeight:7, refX:9, refY:3.5, orient:'auto' });
+      marker.appendChild(svgEl('polygon', { points:'0 0, 10 3.5, 0 7', fill:'#374151' }));
+      defs2.appendChild(marker);
+      svg.appendChild(defs2);
+
+      for (const conn of state.connections){
+        const from = state.elements.find(e=>e.id===conn.from);
+        const to = state.elements.find(e=>e.id===conn.to);
+        if (!from || !to) continue;
+        const fp = getConnectionPoints(from);
+        const tp = getConnectionPoints(to);
+        const dx = to.x - from.x; const dy = to.y - from.y;
+        let start, end, d;
+        if (conn.mode === 'horizontal'){
+          start = fp.right; end = tp.left; d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+        } else if (conn.mode === 'vertical'){
+          start = fp.bottom; end = tp.top; d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+        } else {
+          if (Math.abs(dy) > Math.abs(dx)){
+            if (dy > 0){ start = fp.bottom; end = tp.top; d = `M ${start.x} ${start.y} L ${end.x} ${start.y} L ${end.x} ${end.y}`; }
+            else { start = fp.top; end = tp.bottom; d = `M ${start.x} ${start.y} L ${end.x} ${start.y} L ${end.x} ${end.y}`; }
+          } else {
+            if (dx > 0){ start = fp.right; end = tp.left; d = `M ${start.x} ${start.y} L ${start.x} ${end.y} L ${end.x} ${end.y}`; }
+            else { start = fp.left; end = tp.right; d = `M ${start.x} ${start.y} L ${start.x} ${end.y} L ${end.x} ${end.y}`; }
+          }
+        }
+        const g = svgEl('g');
+        g.appendChild(svgEl('path', { d, stroke: conn.color || '#374151', 'stroke-width': 2, fill:'none', 'marker-end':'url(#arrowhead)', style:'cursor:pointer', 'data-connection-id': conn.id }));
+        g.appendChild(svgEl('path', { d, stroke:'transparent', 'stroke-width': 8, fill:'none', style:'cursor:pointer', 'data-connection-id': conn.id }));
+        svg.appendChild(g);
+      }
+
+      for (const el of state.elements){
+        const w = el.width ?? 120, h = el.height ?? 60;
+        const g = svgEl('g', { transform: `translate(${el.x}, ${el.y})` });
+        const common = { fill: el.color, stroke: state.selectedElement===el.id? '#ef4444' : '#374151', 'stroke-width': state.selectedElement===el.id? 3 : 1, style:'cursor:move', 'data-element-id': el.id };
+
+        switch ((elementTypes[el.type]?.shape)||'rectangle'){
+          case 'oval': g.appendChild(svgEl('ellipse', { cx:w/2, cy:h/2, rx:w/2, ry:h/2, ...common })); break;
+          case 'rectangle': g.appendChild(svgEl('rect', { width:w, height:h, rx:5, ...common })); break;
+          case 'diamond': g.appendChild(svgEl('polygon', { points: `${w/2},0 ${w},${h/2} ${w/2},${h} 0,${h/2}`, ...common })); break;
+          case 'document': {
+            g.appendChild(svgEl('rect', { width:w, height:h-10, ...common }));
+            g.appendChild(svgEl('path', { d:`M0,${h-10} Q${w/4},${h} ${w/2},${h-5} T${w},${h-10}`, ...common }));
+            break; }
+          case 'database': {
+            g.appendChild(svgEl('ellipse', { cx:w/2, cy:10, rx:w/2, ry:10, ...common }));
+            g.appendChild(svgEl('rect', { x:0, y:10, width:w, height:h-20, ...common }));
+            g.appendChild(svgEl('ellipse', { cx:w/2, cy:h-10, rx:w/2, ry:10, ...common }));
+            break; }
+          case 'trapezoid': g.appendChild(svgEl('polygon', { points:`20,0 ${w-20},0 ${w},${h} 0,${h}`, ...common })); break;
+          case 'delay': g.appendChild(svgEl('path', { d:`M0,0 L${w-20},0 Q${w},0 ${w},${h/2} Q${w},${h} ${w-20},${h} L0,${h} Z`, ...common })); break;
+          case 'circle': { const r = Math.min(w,h)/4; g.appendChild(svgEl('circle', { cx:w/2, cy:h/2, r, ...common })); break; }
+          default: g.appendChild(svgEl('rect', { width:w, height:h, ...common }));
+        }
+
+        if (state.selectedElement===el.id || state.connectionStart===el.id){
+          const dot = (cx,cy)=>svgEl('circle',{ cx, cy, r:2, fill:'#10b981', 'fill-opacity':.5, stroke:'#fff', 'stroke-width':.5 });
+          g.appendChild(dot(w/2, 0)); g.appendChild(dot(w/2, h)); g.appendChild(dot(0, h/2)); g.appendChild(dot(w, h/2));
+        }
+
+        if (state.selectedElement===el.id){
+          const handle = (x,y,cursor,name)=>svgEl('rect',{ x, y, width:20, height:20, fill: '#ff0000', stroke:'#fff', 'stroke-width':3, style:`cursor:${cursor}`, 'data-element-id': el.id, 'data-resize-handle': name });
+          g.appendChild(handle(-10,-10,'nwse-resize','nw')); g.appendChild(handle(w-10,-10,'nesw-resize','ne'));
+          g.appendChild(handle(-10,h-10,'nesw-resize','sw')); g.appendChild(handle(w-10,h-10,'nwse-resize','se'));
+        }
+
+        if (state.connectionStart===el.id){
+          g.appendChild(svgEl('rect', { x:-5, y:-5, width:w+10, height:h+10, fill:'none', stroke:'#10b981', 'stroke-width':3, 'stroke-dasharray':'5,5', rx:5 }));
+        }
+
+        g.appendChild(svgEl('text', { x:w/2, y: h/2 + (el.fontSize||12)/3, 'text-anchor':'middle', 'font-size': el.fontSize||12, 'font-family': el.font||'Arial', 'font-weight': el.bold? '700':'400', 'font-style': el.italic? 'italic':'normal', fill:'#fff', style:'pointer-events:none; user-select:none;' }, [ document.createTextNode(el.text||'') ]));
+
+        if (state.selectedElement===el.id){
+          const del = svgEl('circle', { cx: w-10, cy: 10, r: 8, fill: varColor('--danger'), style:'cursor:pointer', 'data-delete-id': el.id });
+          g.appendChild(del);
+        }
+        svg.appendChild(g);
+      }
+    }
+
+    function varColor(name){
+      const el = document.createElement('span');
+      el.style.color = `var(${name})`; document.body.appendChild(el);
+      const color = getComputedStyle(el).color; document.body.removeChild(el); return color;
+    }
+
+    function renderProps(){
+      const p = $('#props');
+      const el = state.elements.find(e=>e.id===state.selectedElement);
+      if (!el){ p.style.display='none'; p.innerHTML=''; return; }
+      p.style.display='block';
+      p.innerHTML = `
+        <div class="prop-grid">
+          <input id="propText" type="text" value="${escapeHtml(el.text||'')}" placeholder="${i18n('propTextPlaceholder')}" />
+          <label>W:<input id="propW" type="number" min="50" max="500" value="${el.width||120}"></label>
+          <label>H:<input id="propH" type="number" min="30" max="300" value="${el.height||60}"></label>
+          <input id="propColor" type="color" value="${el.color||'#3b82f6'}" style="width:32px;height:32px;" />
+          <select id="propFont">${fonts.map(f=>`<option ${el.font===f?'selected':''} value="${f}">${f}</option>`).join('')}</select>
+          <input id="propFontSize" type="number" min="8" max="48" value="${el.fontSize||12}">
+          <button id="propBold" class="${el.bold? 'primary':'gray'}">B</button>
+          <button id="propItalic" class="${el.italic? 'primary':'gray'}"><i>I</i></button>
+        </div>`;
+
+      $('#propText').addEventListener('input', e=>{ el.text = e.target.value; renderSVG(); });
+      $('#propW').addEventListener('input', e=>{ el.width = parseInt(e.target.value)||120; renderSVG(); });
+      $('#propH').addEventListener('input', e=>{ el.height = parseInt(e.target.value)||60; renderSVG(); });
+      $('#propColor').addEventListener('input', e=>{ el.color = e.target.value; renderSVG(); });
+      $('#propFont').addEventListener('change', e=>{ el.font = e.target.value; renderSVG(); });
+      $('#propFontSize').addEventListener('input', e=>{ el.fontSize = parseInt(e.target.value)||12; renderSVG(); });
+      $('#propBold').addEventListener('click', ()=>{ el.bold = !el.bold; renderProps(); renderSVG(); });
+      $('#propItalic').addEventListener('click', ()=>{ el.italic = !el.italic; renderProps(); renderSVG(); });
+    }
+
+    function renderAll(){
+      renderColumnsBg();
+      renderSVG();
+      renderProps();
+      updateToolbarStates();
+      $('#connectHint').style.display = state.isConnecting ? 'block' : 'none';
+      $('#connectHint').textContent = state.connectionStart ? i18n('connectHintTarget') : i18n('connectHintStart');
+    }
+
+    function updateToolbarStates(){
+      $('#connectBtn').className = state.isConnecting ? 'success' : 'gray';
+      $('#pasteBtn').disabled = !state.copiedElement;
+      $('#gridToggle').className = state.showGrid ? 'primary' : 'gray';
+      $('#guidesToggle').className = state.showGuides ? 'primary' : 'gray';
+      $('#connectionMode').value = state.connectionMode;
+      $('#gridSize').value = state.gridSize;
+      const aiEl = $('#aiEnable'); if (aiEl) aiEl.checked = state.aiEnabled;
+      const bar = $('#aiBar'); if (bar) bar.style.display = state.aiEnabled ? 'flex' : 'none';
+      const aiBtn = $('#aiGenerateBtn'); if (aiBtn) aiBtn.disabled = !state.aiEnabled;
+    }
+
+    function setLanguage(lang) {
+        state.lang = lang;
+        document.documentElement.lang = lang;
+
+        $$('[data-translate-key]').forEach(el => {
+            const key = el.dataset.translateKey;
+            const translation = i18n(key, el.textContent);
+            // Handle nested elements like in the recommended option
+            if (el.children.length > 0) {
+              const textNode = Array.from(el.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+              if(textNode) textNode.textContent = translation;
+            } else {
+              el.textContent = translation;
+            }
+        });
+        $$('[data-translate-key-placeholder]').forEach(el => el.placeholder = i18n(el.dataset.translateKeyPlaceholder));
+        $$('[data-translate-key-title]').forEach(el => el.title = i18n(el.dataset.translateKeyTitle));
+
+        // Update parts of UI that are rendered dynamically
+        renderElementButtons();
+        renderColumnsBar();
+        renderAll();
+    }
+
+    // ======= Actions =======
+    function addElement(type){
+      const cfg = elementTypes[type]; if (!cfg) return;
+      const el = {
+        id: genId(), type,
+        x: 100, y: 100, width: 120, height: 60,
+        text: i18n(cfg.nameKey), color: state.currentColor || cfg.color,
+        font: state.currentFont, fontSize: state.currentFontSize,
+        bold:false, italic:false, column:1
+      };
+      state.elements.push(el);
+      state.selectedElement = el.id;
+      renderAll();
+    }
+
+    function deleteElement(id){
+      state.elements = state.elements.filter(e=>e.id!==id);
+      state.connections = state.connections.filter(c=>c.from!==id && c.to!==id);
+      if (state.selectedElement===id) state.selectedElement = null;
+      renderAll();
+    }
+
+    function copyElement(){
+      if (!state.selectedElement) return;
+      const el = state.elements.find(e=>e.id===state.selectedElement);
+      if (el){ state.copiedElement = JSON.parse(JSON.stringify(el)); updateToolbarStates(); }
+    }
+
+    function pasteElement(){
+      if (!state.copiedElement) return;
+      const src = state.copiedElement;
+      const el = { ...src, id: genId(), x: (src.x||0)+30, y:(src.y||0)+30 };
+      state.elements.push(el); state.selectedElement = el.id; renderAll();
+    }
+
+    function saveProject(){
+      const data = { elements: state.elements, connections: state.connections, columns: state.columns, version:'1.0', timestamp: new Date().toISOString() };
+      const blob = new Blob([JSON.stringify(data,null,2)], { type:'application/json' });
+      const url = URL.createObjectURL(blob); const a=document.createElement('a');
+      a.href=url; a.download = `flowchart_${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
+    }
+
+    function exportSVG(){
+      const svg = $('#canvas').cloneNode(true);
+      const ser = new XMLSerializer();
+      const source = ser.serializeToString(svg);
+      const blob = new Blob([source], { type:'image/svg+xml' });
+      const url = URL.createObjectURL(blob); const a = document.createElement('a');
+      a.href = url; a.download='flowchart.svg'; a.click(); URL.revokeObjectURL(url);
+    }
+    
+    function resetCanvas() {
+      if (confirm(i18n('confirmReset'))) {
+      state.elements = [];
+      state.connections = [];
+      state.selectedElement = null;
+      state.copiedElement = null;
+      renderAll();
+  }
+}
+
+    // ======= Event Wiring =======
+    $('#langSwitch').addEventListener('change', e => setLanguage(e.target.value));
+    $('#resetBtn').addEventListener('click', resetCanvas);
+    $('#connectBtn').addEventListener('click', ()=>{ state.isConnecting = !state.isConnecting; state.connectionStart = null; renderAll(); });
+    $('#connectionMode').addEventListener('change', e=>{ state.connectionMode = e.target.value; renderAll(); });
+    $('#gridToggle').addEventListener('click', ()=>{ state.showGrid = !state.showGrid; renderAll(); });
+    $('#guidesToggle').addEventListener('click', ()=>{ state.showGuides = !state.showGuides; renderAll(); });
+    $('#gridSize').addEventListener('input', e=>{ state.gridSize = clamp(parseInt(e.target.value)||20, 10, 50); renderAll(); });
+    $('#copyBtn').addEventListener('click', copyElement);
+    $('#pasteBtn').addEventListener('click', pasteElement);
+    $('#saveBtn').addEventListener('click', saveProject);
+    $('#exportSvgBtn').addEventListener('click', exportSVG);
+    $('#loadBtn').addEventListener('click', ()=> $('#fileInput').click());
+    $('#fileInput').addEventListener('change', e=>{
+      const f = e.target.files?.[0]; if (!f) return; const r = new FileReader();
+      r.onload = ev=>{
+        try{
+          const data = JSON.parse(ev.target.result);
+          if (data.elements && data.connections){
+            state.elements = data.elements; state.connections = data.connections; if (data.columns) state.columns = data.columns;
+            state.selectedElement = null; renderAll();
+          } else alert(i18n('alertInvalidFile'));
+        }catch(err){ alert(i18n('alertLoadError')); console.error(err); }
+      }; r.readAsText(f); e.target.value='';
+    });
+
+    const aiEnableEl = $('#aiEnable');
+    if (aiEnableEl) aiEnableEl.addEventListener('change', ()=>{ state.aiEnabled = aiEnableEl.checked; updateToolbarStates(); });
+
+    document.addEventListener('keydown', e=>{
+      if (e.ctrlKey || e.metaKey){
+        if (e.key === 'c'){ e.preventDefault(); copyElement(); }
+        else if (e.key === 'v'){ e.preventDefault(); pasteElement(); }
+        else if (e.key === 's'){ e.preventDefault(); saveProject(); }
+      } else if (e.key === 'Delete' && state.selectedElement){ e.preventDefault(); deleteElement(state.selectedElement); }
+    });
+
+    let pointerCapturing = false;
+    $('#canvas').addEventListener('pointerdown', e=>{
+      const svg = $('#canvas');
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const ctm = svg.getScreenCTM(); const p = pt.matrixTransform(ctm.inverse());
+      state.dragStart = { x: p.x, y: p.y };
+      const target = e.target;
+      const elId = target.getAttribute('data-element-id');
+      const handle = target.getAttribute('data-resize-handle');
+      const connId = target.getAttribute('data-connection-id');
+      const isBg = target.hasAttribute('data-bg');
+
+      if (connId){ e.stopPropagation(); state.connections = state.connections.filter(c=>c.id !== connId); renderAll(); return; }
+      if (handle && elId){ state.isResizing = true; state.resizeHandle = handle; state.selectedElement = elId; renderAll(); return; }
+      if (target.hasAttribute('data-delete-id')){ const id = target.getAttribute('data-delete-id'); deleteElement(id); return; }
+
+      if (elId){
+        if (state.isConnecting){
+          if (!state.connectionStart){ state.connectionStart = elId; renderAll(); }
+          else if (state.connectionStart !== elId){
+            state.connections.push({ id: genId(), from: state.connectionStart, to: elId, color: '#374151', mode: state.connectionMode });
+            state.connectionStart = null; renderAll();
+          }
+        } else { state.selectedElement = elId; state.isDragging = true; renderAll(); }
+      } else if (isBg){
+        state.selectedElement = null; state.connectionStart = null; state.isDragging = false; state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderAll();
+      }
+      e.currentTarget.setPointerCapture(e.pointerId); pointerCapturing = true;
+    });
+
+    document.addEventListener('pointermove', e=>{
+      if (!pointerCapturing) return; const svg = $('#canvas');
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const ctm = svg.getScreenCTM(); const p = pt.matrixTransform(ctm.inverse());
+      const dx = p.x - state.dragStart.x; const dy = p.y - state.dragStart.y;
+
+      if (state.isResizing && state.selectedElement && state.resizeHandle){
+        const el = state.elements.find(x=>x.id===state.selectedElement); if (!el) return;
+        let newX = el.x, newY = el.y; let newW = el.width||120, newH = el.height||60;
+        switch (state.resizeHandle){
+          case 'se': newW = Math.max(50, (el.width||120) + dx); newH = Math.max(30, (el.height||60) + dy); break;
+          case 'sw': newW = Math.max(50, (el.width||120) - dx); newH = Math.max(30, (el.height||60) + dy); newX = el.x + dx; break;
+          case 'ne': newW = Math.max(50, (el.width||120) + dx); newH = Math.max(30, (el.height||60) - dy); newY = el.y + dy; break;
+          case 'nw': newW = Math.max(50, (el.width||120) - dx); newH = Math.max(30, (el.height||60) - dy); newX = el.x + dx; newY = el.y + dy; break;
+        }
+        el.x = newX; el.y = newY; el.width = newW; el.height = newH;
+        state.dragStart = { x: p.x, y: p.y };
+        renderSVG(); renderProps();
+      } else if (state.isDragging && state.selectedElement){
+        const el = state.elements.find(x=>x.id===state.selectedElement); if (!el) return;
+        const newX = snapToGrid(el.x + dx); const newY = snapToGrid(el.y + dy);
+        const dragged = { ...el, x:newX, y:newY };
+        state.guideLines = generateGuideLines(dragged);
+        el.x = newX; el.y = newY; state.dragStart = { x: p.x, y: p.y };
+        renderSVG();
+      }
+    });
+
+    document.addEventListener('pointerup', e=>{
+      if (!pointerCapturing) return; pointerCapturing = false;
+      const svg = $('#canvas'); try{ svg.releasePointerCapture(e.pointerId); }catch{}
+      state.isDragging = false; state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderSVG();
+    });
+
+    // ======= AI Flow (LLM Integration) =======
+    async function generateFlowFromAI(){
+      const key = $('#aiKey')?.value?.trim() || '';
+      const model = $('#aiModel')?.value || 'gpt-4o-mini';
+      const input = $('#aiInput')?.value?.trim() || '';
+      if(!input){ alert(i18n('alertAINoInput')); return; }
+      if(!key){ alert(i18n('alertAINoKey')); return; }
+      setStatus(i18n('statusAISending'));
+      try{
+        const prompt = buildAIPrompt(input);
+        // NOTE: The OpenAI endpoint below is incorrect according to the latest API.
+        // It should be '/v1/chat/completions'. I'm correcting it.
+        const res = await fetch('https://api.openai.com/v1/chat/completions',{
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${key}` },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role:'system', content: 'You are a precise JSON generator.' },
+              { role:'user', content: prompt }
+            ],
+            max_tokens: 4000,
+            temperature: 0,
+            response_format: { type: "json_object" }
+          })
+        });
+        const data = await res.json();
+        if(!res.ok){ throw new Error(data?.error?.message || 'API Error'); }
+        const text = data?.choices?.[0]?.message?.content || '{}';
+        const json = extractJson(text);
+        if(!json){ throw new Error('No valid JSON found in model output.'); }
+        applyFlowJson(json);
+        setStatus(i18n('statusAILoaded'));
+      }catch(err){
+        console.error(err);
+        alert(i18n('alertGenericError') + err.message);
+        setStatus(i18n('statusAIFailed'));
+      }
+    }
+
+    function buildAIPrompt(orgText){
+        return i18n('aiPrompt').replace('{orgText}', orgText);
+    }
+
+    function extractJson(s){
+      try { return JSON.parse(s); } catch(e){}
+      const start = s.indexOf('{'); const end = s.lastIndexOf('}');
+      if(start !== -1 && end !== -1 && end > start){
+        try{ return JSON.parse(s.slice(start, end+1)); }catch(e){}
+      }
+      return null;
+    }
+
+    function applyFlowJson(data){
+      if(Array.isArray(data.columns) && data.columns.length){
+        state.columns = data.columns.map((c,i)=>({ id: c.id ?? (i+1), customName: c.name||`${i18n('defaultColName')} ${i+1}` , flex: Number(c.flex)||1, color: c.color||'#ffffff' }));
+      }
+      const idMap = new Map();
+      state.elements = (data.elements||[]).map((e,i)=>{
+        const id = e.id && String(e.id).trim() ? String(e.id) : genId();
+        idMap.set(e.id || id, id);
+        const type = normalizeType(e.type);
+        const lane = e.lane || state.columns?.[0]?.customName || 'Lane 1';
+        return {
+          id, type,
+          text: e.text || elementTypes[type]?.nameKey || i18n('defaultNodeName'),
+          color: elementTypes[type]?.color || '#3b82f6',
+          font: state.currentFont, fontSize: state.currentFontSize,
+          bold:false, italic:false,
+          width: Number(e.width)||120, height: Number(e.height)||60,
+          x: Number.isFinite(e.x) ? Number(e.x) : null,
+          y: Number.isFinite(e.y) ? Number(e.y) : null,
+          lane
+        };
+      });
+      state.connections = (data.connections||[]).map(c=>({
+        id: genId(), from: idMap.get(c.from) || c.from, to: idMap.get(c.to) || c.to, color:'#374151',
+        mode: (c.mode==='horizontal'||c.mode==='vertical')? c.mode : 'auto'
+      })).filter(c=>c.from && c.to);
+
+      autoLayoutIfNeeded();
+      state.selectedElement = null;
+      renderAll();
+    }
+
+    function normalizeType(t){
+      const s = String(t||'process').toLowerCase();
+      if (s.includes('start') || s.includes('end')) return 'start';
+      if (s.includes('decision') || s.includes('if') || s.includes('ja/nein') || s.includes('yes/no') || s.includes('diamond')) return 'decision';
+      if (s.includes('doc')) return 'document';
+      if (s.includes('data')) return 'database';
+      if (s.includes('wait') || s.includes('delay')) return 'wait';
+      if (s.includes('manual')) return 'manual';
+      if (s.includes('connector') || s==='conn') return 'connector';
+      return 'process';
+    }
+
+    function autoLayoutIfNeeded(){
+      const needs = state.elements.some(e=>e.x==null || e.y==null);
+      if(!needs) return;
+      const laneMap = new Map();
+      state.columns.forEach((c,idx)=> laneMap.set(c.customName ?? i18n(c.nameKey), idx));
+      const colCount = Math.max(1,state.columns.filter(c=>c.flex>0).length);
+      const colWidthPx = Math.max(240, (document.body.clientWidth/colCount) - 40);
+      const topPad = 40; const leftPad = 40; const vGap = 30; const hGap = 60;
+      const byLane = new Map();
+      for(const e of state.elements){
+        const laneName = e.lane && laneMap.has(e.lane) ? e.lane : (state.columns[0].customName ?? i18n(state.columns[0].nameKey));
+        if(!byLane.has(laneName)) byLane.set(laneName, []);
+        byLane.get(laneName).push(e);
+      }
+      for(const arr of byLane.values()){
+        arr.sort((a,b)=>{
+          const rank = t=> ({start:0, process:1, decision:2, document:3, database:3, manual:4, wait:5, connector:6}[t] ?? 10);
+          return rank(a.type)-rank(b.type);
+        });
+      }
+      for(const [lane, arr] of byLane){
+        const colIdx = laneMap.get(lane) ?? 0;
+        const baseX = leftPad + colIdx * (colWidthPx + hGap);
+        let y = topPad;
+        for(const e of arr){ e.x = baseX; e.y = y; y += (e.height||60) + vGap; }
+      }
+    }
+
+    function setStatus(msg){ const s = document.querySelector('.status'); if(s) s.textContent = msg; }
+
+    // ======= Init =======
+    renderElementButtons();
+    renderColumnsBar();
+    setLanguage('de'); // Initialize with default language
+    renderAll();
+
+    (function(){
+      const bar = document.getElementById('aiBar');
+      const btn = document.getElementById('aiGenerateBtn');
+      const aiChk = document.getElementById('aiEnable');
+      if (bar) bar.style.display = state.aiEnabled ? 'flex' : 'none';
+      if (btn) btn.disabled = !state.aiEnabled;
+      if (aiChk) aiChk.checked = state.aiEnabled;
+    })();
+
+    const aiGen = document.getElementById('aiGenerateBtn');
+    if (aiGen) aiGen.addEventListener('click', generateFlowFromAI);
+    const aiSample = document.getElementById('aiSampleBtn');
+    if (aiSample) aiSample.addEventListener('click', ()=>{
+      const t = document.getElementById('aiInput'); if(!t) return;
+      t.value = i18n('aiSampleText');
+    });
+
+  </script>
+</body>
+</html>
