@@ -408,8 +408,8 @@
       const handles = $('#columnHandles');
       if (handles) handles.innerHTML = '';
       const visible = state.columns.map((c,idx)=> ({...c, _idx: idx})).filter(c=>c.flex>0);
-      ensureFlexBase();
-      const baseTotal = state.columnsBaseTotalFlex || visible.reduce((s,c)=>s+c.flex,0) || 1;
+      const sumFlex = visible.reduce((s,c)=> s + (Number(c.flex)||0), 0);
+      const baseTotal = (sumFlex > 1 + 1e-6) ? sumFlex : 1; // adapt: keep free space if sum <= 1
 
       // Draw columns
       const widths = [];
@@ -448,7 +448,7 @@
               targetIdx: idx,
               startX: e.clientX,
               bgWidth: rect.width,
-              baseTotal: state.columnsBaseTotalFlex,
+              baseTotal: baseTotal,
               startFlex: state.columns[idx].flex,
               othersSum,
             };
@@ -464,8 +464,8 @@
     function equalizeColumns(){
       const vis = state.columns.filter(c=>c.flex>0);
       if (!vis.length) return;
-      for (const c of vis) c.flex = 1;
-      state.columnsBaseTotalFlex = vis.length; // Reset base so sum fills 100%
+      const share = 1 / vis.length;
+      for (const c of vis) c.flex = share;
       renderColumnsBg();
       renderColumnsBar();
     }
@@ -915,22 +915,49 @@
     }
 
     function applyFlowJson(data){
-      if(Array.isArray(data.columns) && data.columns.length){
-        state.columns = data.columns.map((c,i)=>({ id: c.id ?? (i+1), customName: c.name||`${i18n('defaultColName')} ${i+1}` , flex: Number(c.flex)||1, color: c.color||'#ffffff' }));
+      // Load columns: keep id, nameKey, customName, flex (including 0), color
+      if (Array.isArray(data.columns) && data.columns.length){
+        state.columns = data.columns.map((c,i)=>({
+          id: (c.id ?? (i+1)),
+          nameKey: c.nameKey ?? state.columns?.[i]?.nameKey,
+          customName: (typeof c.customName === 'string' && c.customName.trim().length) ? c.customName : null,
+          // Respect 0 and fractional values; fallback to 1 only if invalid
+          flex: (Number.isFinite(Number(c.flex)) && Number(c.flex) >= 0) ? Number(c.flex) : 1,
+          color: c.color || '#ffffff'
+        }));
       }
+
+      // Map of original -> new ids for connections
       const idMap = new Map();
       state.elements = (data.elements||[]).map((e,i)=>{
         const id = e.id && String(e.id).trim() ? String(e.id) : genId();
         idMap.set(e.id || id, id);
         const type = normalizeType(e.type);
-        const lane = e.lane || state.columns?.[0]?.customName || 'Lane 1';
+
+        // Determine lane from e.lane or numeric e.column -> column name
+        let lane = e.lane;
+        if (!lane && (e.column != null)){
+          const colById = state.columns.find(c=> String(c.id) === String(e.column));
+          if (colById) lane = colById.customName ?? i18n(colById.nameKey);
+          else {
+            // try 1-based index
+            const idx = Number(e.column) - 1;
+            const c = state.columns[idx];
+            if (c) lane = c.customName ?? i18n(c.nameKey);
+          }
+        }
+        lane = lane || state.columns?.[0]?.customName || i18n(state.columns?.[0]?.nameKey || 'defaultColName');
+
         return {
           id, type,
-          text: e.text || elementTypes[type]?.nameKey || i18n('defaultNodeName'),
-          color: elementTypes[type]?.color || '#3b82f6',
-          font: state.currentFont, fontSize: state.currentFontSize,
-          bold:false, italic:false,
-          width: Number(e.width)||120, height: Number(e.height)||60,
+          text: (typeof e.text === 'string' ? e.text : (elementTypes[type]?.nameKey ? i18n(elementTypes[type].nameKey) : i18n('defaultNodeName'))),
+          color: e.color || elementTypes[type]?.color || '#3b82f6',
+          font: e.font || state.currentFont,
+          fontSize: Number.isFinite(Number(e.fontSize)) ? Number(e.fontSize) : state.currentFontSize,
+          bold: !!e.bold,
+          italic: !!e.italic,
+          width: Number.isFinite(Number(e.width)) ? Number(e.width) : 120,
+          height: Number.isFinite(Number(e.height)) ? Number(e.height) : 60,
           x: Number.isFinite(e.x) ? Number(e.x) : null,
           y: Number.isFinite(e.y) ? Number(e.y) : null,
           lane
