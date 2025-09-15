@@ -60,7 +60,17 @@
     .badge { display:inline-flex; align-items:center; gap:6px; height:28px; padding: 0 10px; border-radius:999px; font-size:12px; border:1px solid var(--border); background:#fff; }
     .sr-only { position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden; }
 
-    /* AI Import Bar removed */
+    /* Icons Modal */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:1000; }
+    .modal { background: #fff; border:1px solid var(--border); border-radius:12px; width:min(960px, 92vw); max-height:85vh; display:flex; flex-direction:column; overflow:hidden; }
+    .modal-header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--border); }
+    .modal-title { font-weight:600; }
+    .modal-body { padding:12px; overflow:auto; }
+    .icons-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap:12px; }
+    .icon-item { display:flex; flex-direction:column; gap:6px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:10px; cursor:pointer; background:#fff; }
+    .icon-item:hover { outline:2px solid var(--primary); outline-offset:-2px; }
+    .icon-thumb { width:48px; height:48px; object-fit:contain; border-radius:6px; background:#000; }
+    .icon-name { font-size:12px; color:#374151; text-align:center; word-break:break-word; }
   </style>
 </head>
 <body>
@@ -108,6 +118,7 @@
   <div class="group">
       <button id="addImgBtn" class="gray" data-translate-key="addImage" title="Add Image">+ Image</button>
       <input id="imgInput" class="sr-only" type="file" accept="image/*" />
+      <button id="openIconsBtn" class="gray" title="Icons aus Ordner verwenden">+ Icons</button>
   </div>
 
     <div class="divider"></div>
@@ -138,6 +149,28 @@
   </div>
 
   <div class="properties" id="props" style="display:none;"></div>
+
+  <!-- Icons Modal -->
+  <div id="iconsModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="iconsTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <span id="iconsTitle" class="modal-title">Icons auswählen</span>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#374151;">
+            Farbe
+            <input id="iconsColor" type="color" value="#111111" style="width:28px;height:28px;border:1px solid var(--border);border-radius:6px;">
+          </label>
+          <button id="iconsPickBtn" class="gray" title="Alternativ: Ordner lokal wählen">Ordner wählen…</button>
+          <button id="iconsCloseBtn" class="gray">Schließen</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="iconsStatus" class="muted" style="margin-bottom:8px;">Lade Icons…</div>
+        <div id="iconsGrid" class="icons-grid"></div>
+      </div>
+    </div>
+  </div>
+  <input id="iconsDirInput" class="sr-only" type="file" accept="image/png" webkitdirectory multiple />
 
   <script>
     // ======= i18n & Translations =======
@@ -262,6 +295,8 @@
       groupStartPos: null, // Map(id -> {x,y}) during group drag
       isMarquee: false,
       marqueeRect: null, // {x,y,w,h}
+      isDraggingLabel: false,
+      labelStartPos: null, // {x,y} start of label relative position
       isConnecting: false,
       connectionStart: null,
       connectionMode: 'auto',
@@ -279,6 +314,7 @@
       currentFontSize: 12,
       currentColor: '#3b82f6',
       columnsBaseTotalFlex: null,
+      iconsList: null,
     };
 
     // Drag state for column resizing
@@ -395,6 +431,181 @@
       const sum = vis.reduce((s,c)=>s+c.flex,0);
       if (!state.columnsBaseTotalFlex || state.columnsBaseTotalFlex <= 0){
         state.columnsBaseTotalFlex = sum || vis.length || 1;
+      }
+    }
+
+    // ======= Icons Modal =======
+    function showIconsModal(){
+      const modal = document.getElementById('iconsModal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+      document.addEventListener('keydown', escCloseIcons);
+      const body = modal.querySelector('.modal-body'); if (body) body.scrollTop = 0;
+      // On local file://, fetch to Icons/ won't work. Prompt to pick folder.
+      if (location.protocol === 'file:'){
+        const s = document.getElementById('iconsStatus');
+        if (s) s.textContent = 'Lokaler Modus erkannt. Bitte Ordner wählen…';
+      }
+      loadAndRenderIcons().then(files=>{
+        if ((files||[]).length === 0 && location.protocol === 'file:'){
+          // guide user to pick folder if nothing found
+          // no auto-open to avoid surprise; keep status message
+        }
+      });
+    }
+
+    function hideIconsModal(){
+      const modal = document.getElementById('iconsModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      document.removeEventListener('keydown', escCloseIcons);
+    }
+
+    function escCloseIcons(e){ if (e.key === 'Escape') hideIconsModal(); }
+
+    async function loadAndRenderIcons(){
+      const statusEl = document.getElementById('iconsStatus');
+      const grid = document.getElementById('iconsGrid');
+      if (!grid) return;
+      grid.innerHTML = '';
+      if (statusEl) statusEl.textContent = 'Lade Icons…';
+
+      try{
+        const files = await loadIconsList();
+        if (statusEl) statusEl.textContent = files.length ? `Gefundene Icons: ${files.length}` : 'Keine Icons gefunden.';
+        renderIcons(files);
+        return files;
+      }catch(err){
+        console.error(err);
+        if (statusEl) statusEl.textContent = 'Fehler beim Laden der Icons.';
+        return [];
+      }
+    }
+
+    async function loadIconsList(){
+      if (Array.isArray(state.iconsList)) return state.iconsList;
+      // 1) Try manifest JSON
+      try{
+        const r = await fetch('Icons/manifest.json', { cache: 'no-store' });
+        if (r.ok){
+          const arr = await r.json();
+          const files = (Array.isArray(arr)?arr:[])
+            .filter(x=>/\.png$/i.test(x))
+            .map(x=>({ name: String(x), url: `Icons/${String(x).replace(/^\/?Icons\//i,'')}` }));
+          state.iconsList = files; return files;
+        }
+      }catch {}
+      // 2) Try directory listing parsing
+      try{
+        const r = await fetch('Icons/', { cache: 'no-store' });
+        if (r.ok){
+          const html = await r.text();
+          const re = /href=["']([^"']+\.png)["']/ig;
+          const set = new Set();
+          let m; while((m = re.exec(html))){ set.add(decodeURIComponent(m[1])); }
+          const files = Array.from(set)
+            .filter(f=>!f.endsWith('/'))
+            .map(f=>({ name: f.split('/').pop(), url: `Icons/${f.replace(/^\/?Icons\//i,'')}` }));
+          state.iconsList = files; return files;
+        }
+      }catch {}
+      // 3) Fallback: none
+      state.iconsList = [];
+      return [];
+    }
+
+    function displayIconName(file){
+      const base = (typeof file === 'string' ? file : (file?.name||''));
+      const baseOnly = base.split('/').pop() || base;
+      const noExt = baseOnly.replace(/\.[^.]+$/, '');
+      return noExt.replace(/_500dp_.*/i, '');
+    }
+
+    function renderIcons(files){
+      const grid = document.getElementById('iconsGrid'); if(!grid) return;
+      grid.innerHTML = '';
+      // Sort by display name for stable order A→Z
+      const sorted = [...files].sort((a,b)=> displayIconName(a).localeCompare(displayIconName(b)));
+      // Reset scroll to top on every render
+      const body = document.querySelector('#iconsModal .modal-body'); if (body) body.scrollTop = 0;
+      sorted.forEach(f=>{
+        const url = typeof f === 'string' ? (/^https?:/i.test(f) ? f : `Icons/${f.replace(/^\/?Icons\//i,'')}`) : f.url;
+        const item = document.createElement('div'); item.className = 'icon-item'; item.title = displayIconName(f);
+        const img = document.createElement('img'); img.className = 'icon-thumb'; img.src = url; img.alt = displayIconName(f);
+        const name = document.createElement('div'); name.className = 'icon-name'; name.textContent = displayIconName(f);
+        item.appendChild(img); item.appendChild(name);
+        item.addEventListener('click', ()=> selectIcon(url));
+        grid.appendChild(item);
+      });
+    }
+
+    // Allow picking a local folder as fallback
+    function pickIconsFolder(){
+      const inp = document.getElementById('iconsDirInput');
+      if (!inp) return; inp.value=''; inp.click();
+    }
+    const iconsPickBtn = document.getElementById('iconsPickBtn');
+    if (iconsPickBtn){ iconsPickBtn.addEventListener('click', pickIconsFolder); }
+    const iconsDirInput = document.getElementById('iconsDirInput');
+    if (iconsDirInput){
+      iconsDirInput.addEventListener('change', (e)=>{
+        const files = Array.from(e.target.files||[]).filter(f=>/\.png$/i.test(f.name));
+        if (!files.length){ const s=document.getElementById('iconsStatus'); if(s) s.textContent='Keine Icons gefunden.'; return; }
+        files.sort((a,b)=> a.name.localeCompare(b.name));
+        const list = files.map(f=>({ name: f.name, url: URL.createObjectURL(f), _obj: true }));
+        state.iconsList = list; renderIcons(list);
+        const statusEl = document.getElementById('iconsStatus'); if (statusEl) statusEl.textContent = `Geladen: ${list.length}`;
+      });
+    }
+
+    function hexToRgb(hex){
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      if(!m) return {r:17,g:17,b:17};
+      return { r: parseInt(m[1],16), g: parseInt(m[2],16), b: parseInt(m[3],16) };
+    }
+
+    function tintPng(url, color){
+      return new Promise((resolve,reject)=>{
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = ()=>{
+          const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img,0,0);
+          const imgData = ctx.getImageData(0,0,c.width,c.height);
+          const d = imgData.data; const {r,g,b} = hexToRgb(color||'#111111');
+          for(let i=0;i<d.length;i+=4){
+            const a = d[i+3]; if (a===0) continue; // keep transparent
+            d[i] = r; d[i+1] = g; d[i+2] = b; // set RGB; preserve alpha
+          }
+          ctx.putImageData(imgData,0,0);
+          resolve(c.toDataURL('image/png'));
+        };
+        img.onerror = ()=>reject(new Error('Icon konnte nicht geladen werden.'));
+        img.src = url;
+      });
+    }
+
+    async function selectIcon(url){
+      const color = (document.getElementById('iconsColor')?.value)||'#111111';
+      try{
+        const tintedUrl = await tintPng(url, color);
+        const img = new Image();
+        img.onload = ()=>{
+          const maxW = 240; const scale = Math.min(1, maxW / (img.width||maxW));
+          const el = {
+            id: genId(), type:'image', src: tintedUrl,
+            x: 100, y: 100,
+            width: Math.max(60, Math.round((img.width||120)*scale)),
+            height: Math.max(40, Math.round((img.height||120)*scale)),
+            text: '', color: '#ffffff', font: state.currentFont, fontSize: state.currentFontSize, bold:false, italic:false, column:1
+          };
+          state.elements.push(el); state.selectedElement = el.id; renderAll(); hideIconsModal();
+        };
+        img.onerror = ()=>{ alert('Icon konnte nicht geladen werden.'); };
+        img.src = tintedUrl;
+      }catch(err){
+        alert(err.message);
       }
     }
 
@@ -593,6 +804,20 @@
           imgEl.setAttribute('data-element-id', el.id);
           g.appendChild(imgEl);
           g.appendChild(svgEl('rect', { width:w, height:h, fill:'none', stroke: state.selectedElement===el.id? '#ef4444' : '#374151', 'stroke-width': state.selectedElement===el.id? 3 : 1, 'pointer-events':'none' }));
+          // Optional movable text box associated with image
+          if ((el.text||'').trim().length){
+            const fs = el.fontSize||12;
+            const paddingX = 8, paddingY = 6;
+            const textWidth = Math.max(20, Math.round((el.text.length||1) * fs * 0.6));
+            const boxW = textWidth + paddingX*2;
+            const boxH = fs + paddingY*2;
+            const defaultX = (w - boxW)/2;
+            const defaultY = -boxH - 6;
+            const bx = Number.isFinite(el.labelX) ? el.labelX : defaultX;
+            const by = Number.isFinite(el.labelY) ? el.labelY : defaultY;
+            g.appendChild(svgEl('rect', { x:bx, y:by, width:boxW, height:boxH, rx:6, ry:6, fill:'#ffffff', stroke:'#374151', 'stroke-width':1, 'data-label-of': el.id, style:'cursor:move' }));
+            g.appendChild(svgEl('text', { x: bx + boxW/2, y: by + boxH/2 + fs/3, 'text-anchor':'middle', 'font-size': fs, 'font-family': el.font||'Arial', 'font-weight': el.bold? '700':'400', 'font-style': el.italic? 'italic':'normal', fill:'#111', style:'pointer-events:none; user-select:none;' }, [ document.createTextNode(el.text||'') ]));
+          }
           break; }
         default: g.appendChild(svgEl('rect', { width:w, height:h, ...common }));
       }
@@ -623,7 +848,10 @@
           g.appendChild(svgEl('rect', { x:-5, y:-5, width:w+10, height:h+10, fill:'none', stroke:'#10b981', 'stroke-width':3, 'stroke-dasharray':'5,5', rx:5 }));
         }
 
-        g.appendChild(svgEl('text', { x:w/2, y: h/2 + (el.fontSize||12)/3, 'text-anchor':'middle', 'font-size': el.fontSize||12, 'font-family': el.font||'Arial', 'font-weight': el.bold? '700':'400', 'font-style': el.italic? 'italic':'normal', fill:'#fff', style:'pointer-events:none; user-select:none;' }, [ document.createTextNode(el.text||'') ]));
+        // Draw centered label inside non-image elements only
+        if (el.type !== 'image'){
+          g.appendChild(svgEl('text', { x:w/2, y: h/2 + (el.fontSize||12)/3, 'text-anchor':'middle', 'font-size': el.fontSize||12, 'font-family': el.font||'Arial', 'font-weight': el.bold? '700':'400', 'font-style': el.italic? 'italic':'normal', fill:'#fff', style:'pointer-events:none; user-select:none;' }, [ document.createTextNode(el.text||'') ]));
+        }
 
         if (state.selectedElement===el.id){
           const del = svgEl('circle', { cx: w-10, cy: 10, r: 8, fill: varColor('--danger'), style:'cursor:pointer', 'data-delete-id': el.id });
@@ -655,7 +883,7 @@
           <input id="propText" type="text" value="${escapeHtml(el.text||'')}" placeholder="${i18n('propTextPlaceholder')}" />
           <label>W:<input id="propW" type="number" min="50" max="500" value="${el.width||120}"></label>
           <label>H:<input id="propH" type="number" min="30" max="300" value="${el.height||60}"></label>
-          <input id="propColor" type="color" value="${el.color||'#3b82f6'}" style="width:32px;height:32px;" />
+          <input id="propColor" type="color" value="${el.color||'#3b82f6'}" style="width:32px;height:32px;" title="${el.type==='image' ? 'Icon-Farbe' : 'Farbe'}" />
           <select id="propFont">${fonts.map(f=>`<option ${el.font===f?'selected':''} value="${f}">${f}</option>`).join('')}</select>
           <input id="propFontSize" type="number" min="8" max="48" value="${el.fontSize||12}">
           <button id="propBold" class="${el.bold? 'primary':'gray'}">B</button>
@@ -666,7 +894,15 @@
       $('#propText').addEventListener('input', e=>{ el.text = e.target.value; renderSVG(); });
       $('#propW').addEventListener('input', e=>{ el.width = parseInt(e.target.value)||120; renderSVG(); });
       $('#propH').addEventListener('input', e=>{ el.height = parseInt(e.target.value)||60; renderSVG(); });
-      $('#propColor').addEventListener('input', e=>{ el.color = e.target.value; renderSVG(); });
+      $('#propColor').addEventListener('input', async e=>{
+        const v = e.target.value;
+        if (el.type === 'image'){
+          try { el.src = await tintPng(el.src, v); el.color = v; } catch(err){ console.error(err); }
+          renderSVG();
+        } else {
+          el.color = v; renderSVG();
+        }
+      });
       $('#propFont').addEventListener('change', e=>{ el.font = e.target.value; renderSVG(); });
       $('#propFontSize').addEventListener('input', e=>{ el.fontSize = parseInt(e.target.value)||12; renderSVG(); });
       $('#propBold').addEventListener('click', ()=>{ el.bold = !el.bold; renderProps(); renderSVG(); });
@@ -845,6 +1081,12 @@
     
     const addImgBtn = document.getElementById('addImgBtn');
     if (addImgBtn) addImgBtn.addEventListener('click', ()=> addElement('image'));
+    const openIconsBtn = document.getElementById('openIconsBtn');
+    if (openIconsBtn) openIconsBtn.addEventListener('click', showIconsModal);
+    const iconsCloseBtn = document.getElementById('iconsCloseBtn');
+    if (iconsCloseBtn) iconsCloseBtn.addEventListener('click', hideIconsModal);
+    const iconsModal = document.getElementById('iconsModal');
+    if (iconsModal) iconsModal.addEventListener('click', (e)=>{ if (e.target === iconsModal) hideIconsModal(); });
 
     document.addEventListener('keydown', e=>{
       if (e.ctrlKey || e.metaKey){
@@ -862,11 +1104,29 @@
       state.dragStart = { x: p.x, y: p.y };
       const target = e.target;
       const elId = target.getAttribute('data-element-id');
+      const labelOf = target.getAttribute('data-label-of');
       const handle = target.getAttribute('data-resize-handle');
       const connId = target.getAttribute('data-connection-id');
       const isBg = target.hasAttribute('data-bg');
 
       if (connId){ e.stopPropagation(); state.connections = state.connections.filter(c=>c.id !== connId); renderAll(); return; }
+      if (labelOf){
+        state.selectedElement = labelOf;
+        const el = state.elements.find(x=>x.id===labelOf);
+        if (el){
+          // compute default label position in case not set yet
+          const fs = el.fontSize||12; const paddingX=8, paddingY=6; const textWidth = Math.max(20, Math.round((el.text?.length||1) * fs * 0.6));
+          const boxW = textWidth + paddingX*2; const boxH = fs + paddingY*2;
+          const defaultX = ((el.width||120) - boxW)/2; const defaultY = -boxH - 6;
+          if (!Number.isFinite(el.labelX)) el.labelX = defaultX;
+          if (!Number.isFinite(el.labelY)) el.labelY = defaultY;
+          state.isDraggingLabel = true;
+          state.labelStartPos = { x: el.labelX, y: el.labelY };
+        }
+        renderAll();
+        e.currentTarget.setPointerCapture(e.pointerId); pointerCapturing = true;
+        return;
+      }
       if (handle && elId){ state.isResizing = true; state.resizeHandle = handle; state.selectedElement = elId; renderAll(); return; }
       if (target.hasAttribute('data-delete-id')){ const id = target.getAttribute('data-delete-id'); deleteElement(id); return; }
 
@@ -912,7 +1172,17 @@
       const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const ctm = svg.getScreenCTM(); const p = pt.matrixTransform(ctm.inverse());
       const dx = p.x - state.dragStart.x; const dy = p.y - state.dragStart.y;
 
-      if (state.isResizing && state.selectedElement && state.resizeHandle){
+      if (state.isDraggingLabel && state.selectedElement){
+        const el = state.elements.find(x=>x.id===state.selectedElement); if(!el) return;
+        const fs = el.fontSize||12; const paddingX=8, paddingY=6; const textWidth = Math.max(20, Math.round(((el.text||'').length||1) * fs * 0.6));
+        const boxW = textWidth + paddingX*2; const boxH = fs + paddingY*2;
+        const newLX = snapToGrid((state.labelStartPos?.x||0) + dx);
+        const newLY = snapToGrid((state.labelStartPos?.y||0) + dy);
+        el.labelX = newLX; el.labelY = newLY;
+        const dragged = { id: `${el.id}:label`, x: el.x + newLX, y: el.y + newLY, width: boxW, height: boxH };
+        state.guideLines = generateGuideLines(dragged);
+        renderSVG();
+      } else if (state.isResizing && state.selectedElement && state.resizeHandle){
         const el = state.elements.find(x=>x.id===state.selectedElement); if (!el) return;
         let newX = el.x, newY = el.y; let newW = el.width||120, newH = el.height||60;
         switch (state.resizeHandle){
@@ -965,7 +1235,7 @@
         // tiny click on bg clears selection
         state.selectedElements = []; state.selectedElement = null;
       }
-      state.isDragging = false; state.isDraggingGroup = false; state.isMarquee = false; state.marqueeRect = null; state.groupStartPos = null;
+      state.isDragging = false; state.isDraggingGroup = false; state.isMarquee = false; state.marqueeRect = null; state.groupStartPos = null; state.isDraggingLabel = false; state.labelStartPos = null;
       state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderSVG();
     });
 
