@@ -60,11 +60,7 @@
     .badge { display:inline-flex; align-items:center; gap:6px; height:28px; padding: 0 10px; border-radius:999px; font-size:12px; border:1px solid var(--border); background:#fff; }
     .sr-only { position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden; }
 
-    /* AI Import Bar */
-    .ai-bar{display:none;flex-wrap:wrap;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-left:0;border-right:0;background:var(--panel)}
-    .ai-bar textarea{flex:1;min-width:280px;height:80px;padding:8px;border-radius:8px;border:1px solid var(--border);font-family:inherit;font-size:13px}
-    .ai-bar input[type="password"], .ai-bar select{height:32px;border-radius:8px;border:1px solid var(--border);padding:0 10px}
-    .ai-bar .muted{color:var(--muted);font-size:12px}
+    /* AI Import Bar removed */
   </style>
 </head>
 <body>
@@ -114,10 +110,6 @@
       <input id="imgInput" class="sr-only" type="file" accept="image/*" />
   </div>
 
-    <div class="group">
-      <label class="badge"><input id="aiEnable" type="checkbox"> <span data-translate-key="aiAssistant">AI-Assistent</span></label>
-    </div>
-        
     <div class="divider"></div>
         
     <div class="group">
@@ -133,21 +125,7 @@
     <div class="group" style="color:#6b7280;font-size:12px;" data-translate-key="hintText">💡 Ctrl+C/V Copy • Delete löscht • Verbinden bleibt aktiv</div>
   </div>
 
-  <div class="ai-bar" id="aiBar">
-    <textarea id="aiInput" data-translate-key-placeholder="aiInputPlaceholder"></textarea>
-    <div style="display:flex;flex-direction:column;gap:8px;min-width:260px">
-      <input id="aiKey" type="password" data-translate-key-placeholder="apiKeyPlaceholder">
-      <div style="display:flex;gap:8px;align-items:center">
-        <select id="aiModel">
-          <option value="gpt-4o-mini">gpt-4o-mini <span data-translate-key="recommended">(empfohlen)</span></option>
-          <option value="gpt-4o">gpt-4o</option>
-        </select>
-        <button id="aiGenerateBtn" class="primary" data-translate-key="generateFromAI">Flow aus KI</button>
-        <button id="aiSampleBtn" class="gray" data-translate-key="example" data-translate-key-title="loadExample">Beispiel</button>
-      </div>
-      <div class="muted" data-translate-key="proxyWarning">Für Produktion bitte Proxy nutzen – Key niemals im Client ausliefern.</div>
-    </div>
-  </div>
+  <!-- AI bar removed -->
 
   <div class="columns-bar" id="columnsBar"></div>
 
@@ -300,7 +278,6 @@
       currentFont: 'Arial',
       currentFontSize: 12,
       currentColor: '#3b82f6',
-      aiEnabled: false,
       columnsBaseTotalFlex: null,
     };
 
@@ -726,9 +703,7 @@
       $('#guidesToggle').className = state.showGuides ? 'primary' : 'gray';
       $('#connectionMode').value = state.connectionMode;
       $('#gridSize').value = state.gridSize;
-      const aiEl = $('#aiEnable'); if (aiEl) aiEl.checked = state.aiEnabled;
-      const bar = $('#aiBar'); if (bar) bar.style.display = state.aiEnabled ? 'flex' : 'none';
-      const aiBtn = $('#aiGenerateBtn'); if (aiBtn) aiBtn.disabled = !state.aiEnabled;
+      
     }
 
     function setLanguage(lang) {
@@ -867,8 +842,7 @@
       }; r.readAsText(f); e.target.value='';
     });
 
-    const aiEnableEl = $('#aiEnable');
-    if (aiEnableEl) aiEnableEl.addEventListener('change', ()=>{ state.aiEnabled = aiEnableEl.checked; updateToolbarStates(); });
+    
     const addImgBtn = document.getElementById('addImgBtn');
     if (addImgBtn) addImgBtn.addEventListener('click', ()=> addElement('image'));
 
@@ -995,58 +969,7 @@
       state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderSVG();
     });
 
-    // ======= AI Flow (LLM Integration) =======
-    async function generateFlowFromAI(){
-      const key = $('#aiKey')?.value?.trim() || '';
-      const model = $('#aiModel')?.value || 'gpt-4o-mini';
-      const input = $('#aiInput')?.value?.trim() || '';
-      if(!input){ alert(i18n('alertAINoInput')); return; }
-      if(!key){ alert(i18n('alertAINoKey')); return; }
-      setStatus(i18n('statusAISending'));
-      try{
-        const prompt = buildAIPrompt(input);
-        // NOTE: The OpenAI endpoint below is incorrect according to the latest API.
-        // It should be '/v1/chat/completions'. I'm correcting it.
-        const res = await fetch('https://api.openai.com/v1/chat/completions',{
-          method:'POST',
-          headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${key}` },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role:'system', content: 'You are a precise JSON generator.' },
-              { role:'user', content: prompt }
-            ],
-            max_tokens: 4000,
-            temperature: 0,
-            response_format: { type: "json_object" }
-          })
-        });
-        const data = await res.json();
-        if(!res.ok){ throw new Error(data?.error?.message || 'API Error'); }
-        const text = data?.choices?.[0]?.message?.content || '{}';
-        const json = extractJson(text);
-        if(!json){ throw new Error('No valid JSON found in model output.'); }
-        applyFlowJson(json);
-        setStatus(i18n('statusAILoaded'));
-      }catch(err){
-        console.error(err);
-        alert(i18n('alertGenericError') + err.message);
-        setStatus(i18n('statusAIFailed'));
-      }
-    }
-
-    function buildAIPrompt(orgText){
-        return i18n('aiPrompt').replace('{orgText}', orgText);
-    }
-
-    function extractJson(s){
-      try { return JSON.parse(s); } catch(e){}
-      const start = s.indexOf('{'); const end = s.lastIndexOf('}');
-      if(start !== -1 && end !== -1 && end > start){
-        try{ return JSON.parse(s.slice(start, end+1)); }catch(e){}
-      }
-      return null;
-    }
+    // (AI Flow integration removed)
 
     function applyFlowJson(data){
       // Load columns: keep id, nameKey, customName, flex (including 0), color
@@ -1163,22 +1086,7 @@
     // In rare cases first paint can be delayed; force a follow-up render next frame
     requestAnimationFrame(()=>renderAll());
 
-    (function(){
-      const bar = document.getElementById('aiBar');
-      const btn = document.getElementById('aiGenerateBtn');
-      const aiChk = document.getElementById('aiEnable');
-      if (bar) bar.style.display = state.aiEnabled ? 'flex' : 'none';
-      if (btn) btn.disabled = !state.aiEnabled;
-      if (aiChk) aiChk.checked = state.aiEnabled;
-    })();
-
-    const aiGen = document.getElementById('aiGenerateBtn');
-    if (aiGen) aiGen.addEventListener('click', generateFlowFromAI);
-    const aiSample = document.getElementById('aiSampleBtn');
-    if (aiSample) aiSample.addEventListener('click', ()=>{
-      const t = document.getElementById('aiInput'); if(!t) return;
-      t.value = i18n('aiSampleText');
-    });
+    // (AI init and listeners removed)
 
   </script>
 </body>
