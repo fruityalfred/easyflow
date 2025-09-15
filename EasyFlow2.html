@@ -1175,6 +1175,42 @@
           r.setAttribute('fill', child.style.background || '#ffffff');
           r.setAttribute('stroke', '#cfd4e0'); r.setAttribute('stroke-width', '1');
           out.appendChild(r);
+
+          // Column header badge
+          const badge = child.querySelector('span');
+          if (badge){
+            const br = badge.getBoundingClientRect();
+            const bRelX = (br.left - bgRect.left) / (bgRect.width || 1);
+            const bRelY = (br.top - bgRect.top) / (bgRect.height || 1);
+            const bRelW = (br.width) / (bgRect.width || 1);
+            const bRelH = (br.height) / (bgRect.height || 1);
+            const bx = Math.round(bRelX * w);
+            const by = Math.round(bRelY * h);
+            const bw = Math.max(20, Math.round(bRelW * w));
+            const bh = Math.max(10, Math.round(bRelH * h));
+            const badgeRect = document.createElementNS(NS, 'rect');
+            badgeRect.setAttribute('x', String(bx));
+            badgeRect.setAttribute('y', String(by));
+            badgeRect.setAttribute('width', String(bw));
+            badgeRect.setAttribute('height', String(bh));
+            badgeRect.setAttribute('rx', '6');
+            badgeRect.setAttribute('ry', '6');
+            badgeRect.setAttribute('fill', '#ffffff');
+            badgeRect.setAttribute('stroke', '#e5e7eb');
+            badgeRect.setAttribute('stroke-width', '1');
+            out.appendChild(badgeRect);
+
+            const label = document.createElementNS(NS, 'text');
+            label.setAttribute('x', String(bx + bw/2));
+            const fontSize = 12;
+            label.setAttribute('y', String(by + bh/2 + fontSize*0.35));
+            label.setAttribute('text-anchor', 'middle');
+            label.setAttribute('font-size', String(fontSize));
+            label.setAttribute('font-family', 'Arial');
+            label.setAttribute('fill', '#374151');
+            label.textContent = badge.textContent || '';
+            out.appendChild(label);
+          }
         }
       } else {
         const visible = state.columns.filter(c=>c.flex>0);
