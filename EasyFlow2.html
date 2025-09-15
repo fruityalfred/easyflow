@@ -70,6 +70,8 @@
     .icon-item { display:flex; flex-direction:column; gap:6px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:10px; cursor:pointer; background:#fff; }
     .icon-item:hover { outline:2px solid var(--primary); outline-offset:-2px; }
     .icon-thumb { width:48px; height:48px; object-fit:contain; border-radius:6px; background:#000; }
+    /* Inline editor for textbox */
+    .textbox-editor { position:absolute; z-index:2000; resize:none; border:1px solid var(--primary); border-radius:6px; padding:6px; box-sizing:border-box; background:#ffffffcc; text-align:left; overflow:auto; }
     .icon-name { font-size:12px; color:#374151; text-align:center; word-break:break-word; }
   </style>
 </head>
@@ -154,18 +156,18 @@
   <div id="iconsModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="iconsTitle">
     <div class="modal">
       <div class="modal-header">
-        <span id="iconsTitle" class="modal-title">Icons auswählen</span>
+        <span id="iconsTitle" class="modal-title" data-translate-key="iconsTitle">Icons auswählen</span>
         <div style="display:flex; gap:8px; align-items:center;">
           <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#374151;">
-            Farbe
+            <span data-translate-key="colorLabel">Farbe</span>
             <input id="iconsColor" type="color" value="#111111" style="width:28px;height:28px;border:1px solid var(--border);border-radius:6px;">
           </label>
-          <button id="iconsPickBtn" class="gray" title="Alternativ: Ordner lokal wählen">Ordner wählen…</button>
-          <button id="iconsCloseBtn" class="gray">Schließen</button>
+          <button id="iconsPickBtn" class="gray" data-translate-key="iconsPick" title="Alternativ: Ordner lokal wählen">Ordner wählen…</button>
+          <button id="iconsCloseBtn" class="gray" data-translate-key="close">Schließen</button>
         </div>
       </div>
       <div class="modal-body">
-        <div id="iconsStatus" class="muted" style="margin-bottom:8px;">Lade Icons…</div>
+        <div id="iconsStatus" class="muted" style="margin-bottom:8px;" data-translate-key="loadingIcons">Lade Icons…</div>
         <div id="iconsGrid" class="icons-grid"></div>
       </div>
     </div>
@@ -203,6 +205,21 @@
         elManual: 'Manuell',
         elWait: 'Wartezeit',
         elImage: 'Bild',
+        elTextbox: 'Textbox',
+        alignLabel: 'Ausrichtung',
+        alignLeft: 'Links ausrichten',
+        alignCenter: 'Zentriert',
+        valignMiddle: 'Vertikal mittig',
+        editInElement: 'Direkt im Element editieren',
+        iconsTitle: 'Icons auswählen',
+        colorLabel: 'Farbe',
+        iconsPick: 'Ordner wählen…',
+        close: 'Schließen',
+        loadingIcons: 'Lade Icons…',
+        noIconsFound: 'Keine Icons gefunden.',
+        loadedCount: 'Geladen: {n}',
+        localModeHint: 'Lokaler Modus erkannt. Bitte Ordner wählen…',
+        alertIconLoad: 'Icon konnte nicht geladen werden.',
         reset: 'Reset',
         resetTitle: 'Alles zurücksetzen',
         confirmReset: 'Möchten Sie wirklich die gesamte Arbeitsfläche zurücksetzen? Alle Änderungen gehen verloren.',
@@ -254,6 +271,21 @@
         elManual: 'Manual Input',
         elWait: 'Delay',
         elImage: 'Image',
+        elTextbox: 'Textbox',
+        alignLabel: 'Alignment',
+        alignLeft: 'Align left',
+        alignCenter: 'Center',
+        valignMiddle: 'Vertical middle',
+        editInElement: 'Edit directly in element',
+        iconsTitle: 'Select Icons',
+        colorLabel: 'Color',
+        iconsPick: 'Choose folder…',
+        close: 'Close',
+        loadingIcons: 'Loading icons…',
+        noIconsFound: 'No icons found.',
+        loadedCount: 'Loaded: {n}',
+        localModeHint: 'Local mode detected. Please choose folder…',
+        alertIconLoad: 'Failed to load icon.',
         reset: 'Reset',
         resetTitle: 'Reset entire canvas',
         confirmReset: 'Are you sure you want to reset the entire canvas? All changes will be lost.',
@@ -288,6 +320,7 @@
       selectedElements: [],
       copiedElement: null,
       isDragging: false,
+      maybeDrag: false,
       isDraggingGroup: false,
       isResizing: false,
       resizeHandle: null,
@@ -329,6 +362,7 @@
       manual:    { nameKey: 'elManual',    shape: 'trapezoid',color: '#ef4444' },
       wait:      { nameKey: 'elWait',      shape: 'delay',    color: '#6b7280' },
       connector: { nameKey: 'elConnector', shape: 'circle',   color: '#1f2937' },
+      textbox:   { nameKey: 'elTextbox',   shape: 'textbox',  color: '#ffffff' },
       image:     { nameKey: 'elImage',     shape: 'image',    color: '#ffffff' }
     };
 
@@ -349,6 +383,16 @@
       return str.replace(/[&<>"']/g, function(ch){
         return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[ch];
       });
+    }
+
+    function measureWrappedText(text, fontFamily, fontSize, width){
+      const div = document.createElement('div');
+      div.style.cssText = `position:absolute; left:-99999px; top:-99999px; width:${width}px; line-height:1.2; white-space:pre-wrap; overflow-wrap:anywhere; word-wrap:break-word; word-break:break-word; hyphens:auto; font-family:${fontFamily||'Arial'}; font-size:${fontSize||12}px; padding:6px; box-sizing:border-box;`;
+      div.textContent = text || '';
+      document.body.appendChild(div);
+      const h = Math.ceil(div.scrollHeight);
+      document.body.removeChild(div);
+      return h;
     }
 
     function getColumnWidth(columnId){
@@ -392,11 +436,19 @@
     function renderElementButtons(){
       const wrap = $('#elementButtons');
       wrap.innerHTML = '';
-      for (const [type, cfg] of Object.entries(elementTypes)){
+      // Render a curated order and skip 'image' (we have separate "Bild hinzufügen")
+      const order = ['start','process','decision','document','database','manual','wait','connector','textbox'];
+      for (const type of order){
+        const cfg = elementTypes[type]; if (!cfg) continue;
         const btn = document.createElement('button');
         const name = i18n(cfg.nameKey);
         btn.textContent = '+ ' + name;
-        btn.style.background = cfg.color; btn.style.color = '#fff'; btn.title = name;
+        // Ensure visibility on white backgrounds (textbox has white)
+        const bg = cfg.color || '#e5e7eb';
+        btn.style.background = bg;
+        btn.style.color = (bg.toLowerCase()==='#ffffff' ? '#111' : '#fff');
+        if (bg.toLowerCase()==='#ffffff') btn.style.border = '1px solid var(--border)';
+        btn.title = name;
         btn.addEventListener('click', ()=> addElement(type));
         wrap.appendChild(btn);
       }
@@ -598,11 +650,12 @@
             x: 100, y: 100,
             width: Math.max(60, Math.round((img.width||120)*scale)),
             height: Math.max(40, Math.round((img.height||120)*scale)),
-            text: '', color: '#ffffff', font: state.currentFont, fontSize: state.currentFontSize, bold:false, italic:false, column:1
+            text: '', color: '#ffffff', font: state.currentFont, fontSize: state.currentFontSize, bold:false, italic:false, column:1,
+            isIcon: true, textColor: '#111111'
           };
           state.elements.push(el); state.selectedElement = el.id; renderAll(); hideIconsModal();
         };
-        img.onerror = ()=>{ alert('Icon konnte nicht geladen werden.'); };
+        img.onerror = ()=>{ alert(i18n('alertIconLoad')); };
         img.src = tintedUrl;
       }catch(err){
         alert(err.message);
@@ -789,6 +842,32 @@
         case 'trapezoid': g.appendChild(svgEl('polygon', { points:`20,0 ${w-20},0 ${w},${h} 0,${h}`, ...common })); break;
         case 'delay': g.appendChild(svgEl('path', { d:`M0,0 L${w-20},0 Q${w},0 ${w},${h/2} Q${w},${h} ${w-20},${h} L0,${h} Z`, ...common })); break;
         case 'circle': { const r = Math.min(w,h)/4; g.appendChild(svgEl('circle', { cx:w/2, cy:h/2, r, ...common })); break; }
+        case 'textbox': {
+          // Measure required height and auto-expand element if needed
+          const padding = 12; // 6px top/bottom from CSS
+          const requiredH = measureWrappedText(el.text||'', el.font||'Arial', el.fontSize||12, w) + (padding);
+          if (!Number.isFinite(el.height) || requiredH > (el.height||0)) el.height = requiredH;
+          const hh = el.height || h;
+          // background box
+          g.appendChild(svgEl('rect', { width:w, height:hh, rx:8, ry:8, fill: el.color || '#ffffff', stroke: isSel? '#ef4444' : '#374151', 'stroke-width': isSel? 3 : 1, 'data-element-id': el.id, style:'cursor:move' }));
+          // text with automatic wrapping via foreignObject (top-aligned)
+          const fo = document.createElementNS(NS, 'foreignObject');
+          fo.setAttribute('x','0'); fo.setAttribute('y','0');
+          fo.setAttribute('width', String(w)); fo.setAttribute('height', String(hh));
+          fo.setAttribute('style','pointer-events:none');
+          const div = document.createElement('div');
+          div.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+          const hAlign = (el.textAlign||'left');
+          const vAlign = (el.vAlign||'top');
+          const alignItems = hAlign==='center' ? 'center' : (hAlign==='right' ? 'flex-end' : 'flex-start');
+          const justifyContent = vAlign==='middle' ? 'center' : (vAlign==='bottom' ? 'flex-end' : 'flex-start');
+          div.style.cssText = `width:${w}px;height:${hh}px;display:flex;align-items:${alignItems};justify-content:${justifyContent};text-align:${hAlign};white-space:pre-wrap;overflow-wrap:anywhere;word-wrap:break-word;word-break:break-word;hyphens:auto;color:${el.textColor||'#111'};font-family:${el.font||'Arial'};font-size:${el.fontSize||12}px;font-weight:${el.bold?'700':'400'};font-style:${el.italic?'italic':'normal'};padding:6px;box-sizing:border-box;`;
+          div.textContent = el.text || '';
+          fo.appendChild(div);
+          g.appendChild(fo);
+          // overlay to ensure dblclick always hits the textbox
+          g.appendChild(svgEl('rect', { width:w, height:hh, fill:'transparent', style:'pointer-events:all', 'data-element-id': el.id }));
+          break; }
         case 'image': {
           // draw image then selection stroke frame
           const imgEl = document.createElementNS(NS, 'image');
@@ -816,7 +895,7 @@
             const bx = Number.isFinite(el.labelX) ? el.labelX : defaultX;
             const by = Number.isFinite(el.labelY) ? el.labelY : defaultY;
             g.appendChild(svgEl('rect', { x:bx, y:by, width:boxW, height:boxH, rx:6, ry:6, fill:'#ffffff', stroke:'#374151', 'stroke-width':1, 'data-label-of': el.id, style:'cursor:move' }));
-            g.appendChild(svgEl('text', { x: bx + boxW/2, y: by + boxH/2 + fs/3, 'text-anchor':'middle', 'font-size': fs, 'font-family': el.font||'Arial', 'font-weight': el.bold? '700':'400', 'font-style': el.italic? 'italic':'normal', fill:'#111', style:'pointer-events:none; user-select:none;' }, [ document.createTextNode(el.text||'') ]));
+            g.appendChild(svgEl('text', { x: bx + boxW/2, y: by + boxH/2 + fs/3, 'text-anchor':'middle', 'font-size': fs, 'font-family': el.font||'Arial', 'font-weight': el.bold? '700':'400', 'font-style': el.italic? 'italic':'normal', fill: el.textColor || '#111', style:'pointer-events:none; user-select:none;' }, [ document.createTextNode(el.text||'') ]));
           }
           break; }
         default: g.appendChild(svgEl('rect', { width:w, height:h, ...common }));
@@ -848,9 +927,9 @@
           g.appendChild(svgEl('rect', { x:-5, y:-5, width:w+10, height:h+10, fill:'none', stroke:'#10b981', 'stroke-width':3, 'stroke-dasharray':'5,5', rx:5 }));
         }
 
-        // Draw centered label inside non-image elements only
-        if (el.type !== 'image'){
-          g.appendChild(svgEl('text', { x:w/2, y: h/2 + (el.fontSize||12)/3, 'text-anchor':'middle', 'font-size': el.fontSize||12, 'font-family': el.font||'Arial', 'font-weight': el.bold? '700':'400', 'font-style': el.italic? 'italic':'normal', fill:'#fff', style:'pointer-events:none; user-select:none;' }, [ document.createTextNode(el.text||'') ]));
+        // Draw centered label inside non-image, non-textbox elements only
+        if (el.type !== 'image' && el.type !== 'textbox'){
+          g.appendChild(svgEl('text', { x:w/2, y: h/2 + (el.fontSize||12)/3, 'text-anchor':'middle', 'font-size': el.fontSize||12, 'font-family': el.font||'Arial', 'font-weight': el.bold? '700':'400', 'font-style': el.italic? 'italic':'normal', fill: el.textColor || '#fff', style:'pointer-events:none; user-select:none;' }, [ document.createTextNode(el.text||'') ]));
         }
 
         if (state.selectedElement===el.id){
@@ -883,30 +962,79 @@
           <input id="propText" type="text" value="${escapeHtml(el.text||'')}" placeholder="${i18n('propTextPlaceholder')}" />
           <label>W:<input id="propW" type="number" min="50" max="500" value="${el.width||120}"></label>
           <label>H:<input id="propH" type="number" min="30" max="300" value="${el.height||60}"></label>
-          <input id="propColor" type="color" value="${el.color||'#3b82f6'}" style="width:32px;height:32px;" title="${el.type==='image' ? 'Icon-Farbe' : 'Farbe'}" />
+          <input id="propColor" type="color" value="${el.color||'#3b82f6'}" style="width:32px;height:32px;" ${el.type==='image' && !el.isIcon ? 'disabled' : ''} title="${el.type==='image' ? (el.isIcon ? 'Icon-Farbe' : 'Farbänderung für hochgeladene Bilder deaktiviert') : 'Farbe'}" />
           <select id="propFont">${fonts.map(f=>`<option ${el.font===f?'selected':''} value="${f}">${f}</option>`).join('')}</select>
           <input id="propFontSize" type="number" min="8" max="48" value="${el.fontSize||12}">
+          <input id="propTextColor" type="color" value="${el.textColor || (el.type==='image' ? '#111111' : '#ffffff')}" style="width:32px;height:32px;" title="Textfarbe" />
           <button id="propBold" class="${el.bold? 'primary':'gray'}">B</button>
           <button id="propItalic" class="${el.italic? 'primary':'gray'}"><i>I</i></button>
+          ${el.type==='textbox' ? `
+            
+            <div style=\"display:flex; gap:6px; align-items:center;\">
+              <span style=\"font-size:12px;color:#6b7280;\">Ausrichtung:</span>
+              <button id=\"alignLeft\" class=\"${(el.textAlign||'left')==='left'?'primary':'gray'}\" title=\"Links\">⟸</button>
+              <button id=\"alignCenter\" class=\"${(el.textAlign||'left')==='center'?'primary':'gray'}\" title=\"Zentriert\">↔</button>
+              <button id=\"alignRight\" class=\"${(el.textAlign||'left')==='right'?'primary':'gray'}\" title=\"Rechts\">⟹</button>
+              <span style=\"font-size:12px;color:#6b7280; margin-left:8px;\">Vertikal:</span>
+              <button id=\"valignTop\" class=\"${(el.vAlign||'top')==='top'?'primary':'gray'}\" title=\"Oben\">⇡</button>
+              <button id=\"valignMiddle\" class=\"${(el.vAlign||'top')==='middle'?'primary':'gray'}\" title=\"Mitte\">⇵</button>
+              <button id=\"valignBottom\" class=\"${(el.vAlign||'top')==='bottom'?'primary':'gray'}\" title=\"Unten\">⇣</button>
+            </div>
+          ` : ''}
           ${el.type==='image' ? '<button id="propImgReplace" class="gray">Bild wechseln</button>' : ''}
         </div>`;
 
       $('#propText').addEventListener('input', e=>{ el.text = e.target.value; renderSVG(); });
+      // For textbox: clicking the prop text field opens inline editor in canvas
+      if (el.type === 'textbox'){
+        const pt = document.getElementById('propText');
+        if (pt){
+          pt.readOnly = true; // prevent typing here; edit directly in element
+          pt.title = i18n ? i18n('editInElement') : 'Im Element bearbeiten';
+          pt.addEventListener('click', (ev)=>{ ev.preventDefault(); openTextboxEditor(el); });
+          pt.addEventListener('keydown', (ev)=>{ ev.preventDefault(); openTextboxEditor(el); });
+        }
+      }
       $('#propW').addEventListener('input', e=>{ el.width = parseInt(e.target.value)||120; renderSVG(); });
       $('#propH').addEventListener('input', e=>{ el.height = parseInt(e.target.value)||60; renderSVG(); });
-      $('#propColor').addEventListener('input', async e=>{
+      const colorInput = $('#propColor');
+      colorInput.addEventListener('input', async e=>{
         const v = e.target.value;
         if (el.type === 'image'){
+          if (!el.isIcon) { return; } // disable tinting for uploaded images
           try { el.src = await tintPng(el.src, v); el.color = v; } catch(err){ console.error(err); }
           renderSVG();
         } else {
           el.color = v; renderSVG();
         }
       });
+      const textColorInput = $('#propTextColor');
+      if (textColorInput){ textColorInput.addEventListener('input', e=>{ el.textColor = e.target.value; renderSVG(); }); }
       $('#propFont').addEventListener('change', e=>{ el.font = e.target.value; renderSVG(); });
       $('#propFontSize').addEventListener('input', e=>{ el.fontSize = parseInt(e.target.value)||12; renderSVG(); });
       $('#propBold').addEventListener('click', ()=>{ el.bold = !el.bold; renderProps(); renderSVG(); });
       $('#propItalic').addEventListener('click', ()=>{ el.italic = !el.italic; renderProps(); renderSVG(); });
+      // Text alignment controls (only for textbox)
+      const alignLeft = document.getElementById('alignLeft');
+      const alignCenter = document.getElementById('alignCenter');
+      const alignRight = document.getElementById('alignRight');
+      const setAlign = (val)=>{ el.textAlign = val; renderProps(); renderSVG(); };
+      if (alignLeft) alignLeft.addEventListener('click', ()=> setAlign('left'));
+      if (alignCenter) alignCenter.addEventListener('click', ()=> setAlign('center'));
+      if (alignRight) { alignRight.remove(); }
+      const vTop = document.getElementById('valignTop'); if (vTop) vTop.remove();
+      const vBot = document.getElementById('valignBottom'); if (vBot) vBot.remove();
+      const vMid = document.getElementById('valignMiddle');
+      const setV = (val)=>{ el.vAlign = val; renderProps(); renderSVG(); };
+      if (vMid) {
+        vMid.title = i18n('valignMiddle');
+        vMid.textContent = '↕';
+        vMid.addEventListener('click', ()=> setV((el.vAlign==='middle') ? 'top' : 'middle'));
+      }
+      const alignLabel = p.querySelector('[data-translate-key="alignLabel"]');
+      if (alignLabel) alignLabel.textContent = i18n('alignLabel') + ':';
+      if (alignLeft) { alignLeft.title = i18n('alignLeft'); alignLeft.textContent = '⟸'; }
+      if (alignCenter) { alignCenter.title = i18n('alignCenter'); alignCenter.textContent = '↔'; }
       const replaceBtn = document.getElementById('propImgReplace');
       if (replaceBtn){
         replaceBtn.addEventListener('click', ()=>{
@@ -915,7 +1043,7 @@
           inp.onchange = ev=>{
             const file = ev.target.files?.[0]; if(!file) return;
             const fr = new FileReader();
-            fr.onload = () => { el.src = fr.result; renderSVG(); };
+            fr.onload = () => { el.src = fr.result; el.isIcon = false; renderSVG(); };
             fr.readAsDataURL(file);
           };
           inp.click();
@@ -980,7 +1108,8 @@
               const el = {
                 id: genId(), type:'image', src: fr.result,
                 x: 100, y: 100, width: Math.max(60, Math.round(img.width*scale)), height: Math.max(40, Math.round(img.height*scale)),
-                text: '', color: '#ffffff', font: state.currentFont, fontSize: state.currentFontSize, bold:false, italic:false, column:1
+                text: '', color: '#ffffff', font: state.currentFont, fontSize: state.currentFontSize, bold:false, italic:false, column:1,
+                isIcon: false, textColor: '#111111'
               };
               state.elements.push(el); state.selectedElement = el.id; renderAll();
             };
@@ -993,14 +1122,19 @@
       } else {
         const el = {
           id: genId(), type,
-          x: 100, y: 100, width: 120, height: 60,
+          x: 100, y: 100, width: (type==='textbox'? 250:120), height: (type==='textbox'? 250:60),
           text: i18n(cfg.nameKey), color: state.currentColor || cfg.color,
           font: state.currentFont, fontSize: state.currentFontSize,
-          bold:false, italic:false, column:1
+          bold:false, italic:false, column:1,
+          textColor: '#ffffff'
         };
+        if (type==='textbox'){ el.text=''; el.textColor='#111111'; el.textAlign='left'; el.vAlign='top'; }
         state.elements.push(el);
         state.selectedElement = el.id;
         renderAll();
+        if (type === 'textbox'){
+          setTimeout(()=>{ openTextboxEditor(el); }, 0);
+        }
       }
     }
 
@@ -1152,10 +1286,10 @@
             }));
             renderAll();
           } else {
-            // single selection drag
+            // single selection; only start drag after small move threshold
             state.selectedElements = [elId];
             state.selectedElement = elId;
-            state.isDragging = true; renderAll();
+            state.maybeDrag = true; renderAll();
           }
         }
       } else if (isBg){
@@ -1167,10 +1301,98 @@
       e.currentTarget.setPointerCapture(e.pointerId); pointerCapturing = true;
     });
 
+    // Enable inline editing for textbox on double click
+    $('#canvas').addEventListener('dblclick', e=>{
+      const svg = $('#canvas');
+      const target = e.target;
+      let elId = target.getAttribute('data-element-id') || target.getAttribute('data-label-of');
+      let el = null;
+      if (elId){
+        el = state.elements.find(x=>x.id===elId);
+      } else {
+        // Hit-test by coordinates (helps when dblclick occurs on nodes without attributes)
+        const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const ctm = svg.getScreenCTM(); const p = pt.matrixTransform(ctm.inverse());
+        el = [...state.elements].reverse().find(x=> x.type==='textbox' && p.x>=x.x && p.x<=x.x+(x.width||0) && p.y>=x.y && p.y<=x.y+(x.height||0));
+      }
+      // DOM-based fallback using elementFromPoint to find any ancestor with data-element-id
+      if (!el){
+        let node = document.elementFromPoint(e.clientX, e.clientY);
+        while (node && node !== document.body){
+          if (node.getAttribute && node.getAttribute('data-element-id')){ elId = node.getAttribute('data-element-id'); break; }
+          node = node.parentNode;
+        }
+        if (elId){ el = state.elements.find(x=>x.id===elId && x.type==='textbox'); }
+      }
+      if (!el || el.type !== 'textbox') return;
+      e.preventDefault(); e.stopPropagation();
+      openTextboxEditor(el);
+    });
+
+    // Fallback: some environments fire reliable double-clicks via click with detail===2
+    $('#canvas').addEventListener('click', e=>{
+      if (e.detail !== 2) return;
+      const svg = $('#canvas');
+      const target = e.target;
+      let elId = target.getAttribute && (target.getAttribute('data-element-id') || target.getAttribute('data-label-of'));
+      let el = elId ? state.elements.find(x=>x.id===elId) : null;
+      if (!el){
+        const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const ctm = svg.getScreenCTM(); const p = pt.matrixTransform(ctm.inverse());
+        el = [...state.elements].reverse().find(x=> x.type==='textbox' && p.x>=x.x && p.x<=x.x+(x.width||0) && p.y>=x.y && p.y<=x.y+(x.height||0));
+      }
+      if (el && el.type==='textbox'){ e.preventDefault(); e.stopPropagation(); openTextboxEditor(el); }
+    });
+
+    function openTextboxEditor(el){
+      const wrap = document.querySelector('.canvas-wrap'); if (!wrap) return;
+      // Remove existing editor if any
+      const old = document.querySelector('.textbox-editor'); if (old) old.remove();
+      const ta = document.createElement('textarea'); ta.className = 'textbox-editor';
+      const w = el.width||220, h = el.height||120;
+      ta.style.left = `${el.x+2}px`; ta.style.top = `${el.y+2}px`;
+      ta.style.width = `${Math.max(60, w-4)}px`;
+      const minTaH = Math.max(40, (h - 4));
+      ta.style.height = `${minTaH}px`;
+      ta.style.fontFamily = el.font||'Arial'; ta.style.fontSize = `${el.fontSize||12}px`;
+      ta.style.color = el.textColor||'#111'; ta.style.backgroundColor = '#ffffffcc';
+      ta.style.lineHeight = '1.2'; ta.style.whiteSpace = 'pre-wrap'; ta.style.overflowWrap = 'anywhere'; ta.style.wordBreak = 'break-word';
+      ta.style.textAlign = el.textAlign || 'left';
+      ta.value = el.text || '';
+      wrap.appendChild(ta); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+
+      const finish = (commit)=>{
+        if (commit){ el.text = ta.value; el.height = measureWrappedText(el.text, el.font||'Arial', el.fontSize||12, el.width||220) + 12; }
+        ta.remove(); renderAll();
+      };
+      const liveAdjust = ()=>{
+        // Only grow, never shrink below current element height
+        const currentElH = el.height || h;
+        const needed = measureWrappedText(ta.value, el.font||'Arial', el.fontSize||12, el.width||220) + 12;
+        const newElH = Math.max(currentElH, needed);
+        // Adjust textarea height accordingly
+        ta.style.height = 'auto';
+        ta.style.height = `${Math.max(minTaH, ta.scrollHeight, newElH - 4)}px`;
+        if (Math.abs((el.height||0) - newElH) > 0.5){
+          el.height = newElH;
+          renderSVG();
+        }
+      };
+      ta.addEventListener('input', liveAdjust);
+      ta.addEventListener('keydown', ev=>{
+        if (ev.key === 'Escape'){ ev.preventDefault(); finish(false); }
+        if ((ev.ctrlKey||ev.metaKey) && ev.key === 'Enter'){ ev.preventDefault(); finish(true); }
+      });
+      ta.addEventListener('blur', ()=> finish(true));
+    }
+
     document.addEventListener('pointermove', e=>{
       if (!pointerCapturing) return; const svg = $('#canvas');
       const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const ctm = svg.getScreenCTM(); const p = pt.matrixTransform(ctm.inverse());
       const dx = p.x - state.dragStart.x; const dy = p.y - state.dragStart.y;
+
+      // promote maybeDrag to isDragging when threshold exceeded
+      if (state.maybeDrag && (Math.abs(dx) > 2 || Math.abs(dy) > 2)){
+        state.isDragging = true; state.maybeDrag = false;
+      }
 
       if (state.isDraggingLabel && state.selectedElement){
         const el = state.elements.find(x=>x.id===state.selectedElement); if(!el) return;
@@ -1235,7 +1457,7 @@
         // tiny click on bg clears selection
         state.selectedElements = []; state.selectedElement = null;
       }
-      state.isDragging = false; state.isDraggingGroup = false; state.isMarquee = false; state.marqueeRect = null; state.groupStartPos = null; state.isDraggingLabel = false; state.labelStartPos = null;
+      state.isDragging = false; state.maybeDrag = false; state.isDraggingGroup = false; state.isMarquee = false; state.marqueeRect = null; state.groupStartPos = null; state.isDraggingLabel = false; state.labelStartPos = null;
       state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderSVG();
     });
 
@@ -1283,6 +1505,7 @@
           fontSize: Number.isFinite(Number(e.fontSize)) ? Number(e.fontSize) : state.currentFontSize,
           bold: !!e.bold,
           italic: !!e.italic,
+          textColor: (typeof e.textColor === 'string' && e.textColor) ? e.textColor : (type==='image' ? '#111111' : '#ffffff'),
           width: Number.isFinite(Number(e.width)) ? Number(e.width) : 120,
           height: Number.isFinite(Number(e.height)) ? Number(e.height) : 60,
           x: Number.isFinite(e.x) ? Number(e.x) : null,
@@ -1314,6 +1537,7 @@
       if (s.includes('wait') || s.includes('delay')) return 'wait';
       if (s.includes('manual')) return 'manual';
       if (s.includes('image') || s.includes('img') || s.includes('bild')) return 'image';
+      if (s.includes('text')) return 'textbox';
       if (s.includes('connector') || s==='conn') return 'connector';
       return 'process';
     }
