@@ -134,8 +134,6 @@
         </select>
       </label>
     </div>
-
-    <div class="group" style="color:#6b7280;font-size:12px;" data-translate-key="hintText">💡 Ctrl+C/V Copy • Delete löscht • Verbinden bleibt aktiv</div>
   </div>
 
   <!-- AI bar removed -->
@@ -206,11 +204,6 @@
         elWait: 'Wartezeit',
         elImage: 'Bild',
         elTextbox: 'Textbox',
-        alignLabel: 'Ausrichtung',
-        alignLeft: 'Links ausrichten',
-        alignCenter: 'Zentriert',
-        valignMiddle: 'Vertikal mittig',
-        editInElement: 'Direkt im Element editieren',
         iconsTitle: 'Icons auswählen',
         colorLabel: 'Farbe',
         iconsPick: 'Ordner wählen…',
@@ -272,11 +265,6 @@
         elWait: 'Delay',
         elImage: 'Image',
         elTextbox: 'Textbox',
-        alignLabel: 'Alignment',
-        alignLeft: 'Align left',
-        alignCenter: 'Center',
-        valignMiddle: 'Vertical middle',
-        editInElement: 'Edit directly in element',
         iconsTitle: 'Select Icons',
         colorLabel: 'Color',
         iconsPick: 'Choose folder…',
@@ -857,11 +845,7 @@
           fo.setAttribute('style','pointer-events:none');
           const div = document.createElement('div');
           div.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
-          const hAlign = (el.textAlign||'left');
-          const vAlign = (el.vAlign||'top');
-          const alignItems = hAlign==='center' ? 'center' : (hAlign==='right' ? 'flex-end' : 'flex-start');
-          const justifyContent = vAlign==='middle' ? 'center' : (vAlign==='bottom' ? 'flex-end' : 'flex-start');
-          div.style.cssText = `width:${w}px;height:${hh}px;display:flex;align-items:${alignItems};justify-content:${justifyContent};text-align:${hAlign};white-space:pre-wrap;overflow-wrap:anywhere;word-wrap:break-word;word-break:break-word;hyphens:auto;color:${el.textColor||'#111'};font-family:${el.font||'Arial'};font-size:${el.fontSize||12}px;font-weight:${el.bold?'700':'400'};font-style:${el.italic?'italic':'normal'};padding:6px;box-sizing:border-box;`;
+          div.style.cssText = `width:${w}px;height:${hh}px;display:block;text-align:${el.textAlign||'left'};white-space:pre-wrap;overflow-wrap:anywhere;word-wrap:break-word;word-break:break-word;hyphens:auto;color:${el.textColor||'#111'};font-family:${el.font||'Arial'};font-size:${el.fontSize||12}px;font-weight:${el.bold?'700':'400'};font-style:${el.italic?'italic':'normal'};padding:6px;box-sizing:border-box;`;
           div.textContent = el.text || '';
           fo.appendChild(div);
           g.appendChild(fo);
@@ -969,32 +953,18 @@
           <button id="propBold" class="${el.bold? 'primary':'gray'}">B</button>
           <button id="propItalic" class="${el.italic? 'primary':'gray'}"><i>I</i></button>
           ${el.type==='textbox' ? `
-            
+            <div style="flex-basis:100%; height:0;"></div>
             <div style=\"display:flex; gap:6px; align-items:center;\">
               <span style=\"font-size:12px;color:#6b7280;\">Ausrichtung:</span>
               <button id=\"alignLeft\" class=\"${(el.textAlign||'left')==='left'?'primary':'gray'}\" title=\"Links\">⟸</button>
               <button id=\"alignCenter\" class=\"${(el.textAlign||'left')==='center'?'primary':'gray'}\" title=\"Zentriert\">↔</button>
               <button id=\"alignRight\" class=\"${(el.textAlign||'left')==='right'?'primary':'gray'}\" title=\"Rechts\">⟹</button>
-              <span style=\"font-size:12px;color:#6b7280; margin-left:8px;\">Vertikal:</span>
-              <button id=\"valignTop\" class=\"${(el.vAlign||'top')==='top'?'primary':'gray'}\" title=\"Oben\">⇡</button>
-              <button id=\"valignMiddle\" class=\"${(el.vAlign||'top')==='middle'?'primary':'gray'}\" title=\"Mitte\">⇵</button>
-              <button id=\"valignBottom\" class=\"${(el.vAlign||'top')==='bottom'?'primary':'gray'}\" title=\"Unten\">⇣</button>
             </div>
           ` : ''}
           ${el.type==='image' ? '<button id="propImgReplace" class="gray">Bild wechseln</button>' : ''}
         </div>`;
 
       $('#propText').addEventListener('input', e=>{ el.text = e.target.value; renderSVG(); });
-      // For textbox: clicking the prop text field opens inline editor in canvas
-      if (el.type === 'textbox'){
-        const pt = document.getElementById('propText');
-        if (pt){
-          pt.readOnly = true; // prevent typing here; edit directly in element
-          pt.title = i18n ? i18n('editInElement') : 'Im Element bearbeiten';
-          pt.addEventListener('click', (ev)=>{ ev.preventDefault(); openTextboxEditor(el); });
-          pt.addEventListener('keydown', (ev)=>{ ev.preventDefault(); openTextboxEditor(el); });
-        }
-      }
       $('#propW').addEventListener('input', e=>{ el.width = parseInt(e.target.value)||120; renderSVG(); });
       $('#propH').addEventListener('input', e=>{ el.height = parseInt(e.target.value)||60; renderSVG(); });
       const colorInput = $('#propColor');
@@ -1021,20 +991,7 @@
       const setAlign = (val)=>{ el.textAlign = val; renderProps(); renderSVG(); };
       if (alignLeft) alignLeft.addEventListener('click', ()=> setAlign('left'));
       if (alignCenter) alignCenter.addEventListener('click', ()=> setAlign('center'));
-      if (alignRight) { alignRight.remove(); }
-      const vTop = document.getElementById('valignTop'); if (vTop) vTop.remove();
-      const vBot = document.getElementById('valignBottom'); if (vBot) vBot.remove();
-      const vMid = document.getElementById('valignMiddle');
-      const setV = (val)=>{ el.vAlign = val; renderProps(); renderSVG(); };
-      if (vMid) {
-        vMid.title = i18n('valignMiddle');
-        vMid.textContent = '↕';
-        vMid.addEventListener('click', ()=> setV((el.vAlign==='middle') ? 'top' : 'middle'));
-      }
-      const alignLabel = p.querySelector('[data-translate-key="alignLabel"]');
-      if (alignLabel) alignLabel.textContent = i18n('alignLabel') + ':';
-      if (alignLeft) { alignLeft.title = i18n('alignLeft'); alignLeft.textContent = '⟸'; }
-      if (alignCenter) { alignCenter.title = i18n('alignCenter'); alignCenter.textContent = '↔'; }
+      if (alignRight) alignRight.addEventListener('click', ()=> setAlign('right'));
       const replaceBtn = document.getElementById('propImgReplace');
       if (replaceBtn){
         replaceBtn.addEventListener('click', ()=>{
@@ -1128,7 +1085,7 @@
           bold:false, italic:false, column:1,
           textColor: '#ffffff'
         };
-        if (type==='textbox'){ el.text=''; el.textColor='#111111'; el.textAlign='left'; el.vAlign='top'; }
+        if (type==='textbox'){ el.text=''; el.textColor='#111111'; el.textAlign='left'; }
         state.elements.push(el);
         state.selectedElement = el.id;
         renderAll();
@@ -1326,20 +1283,6 @@
       if (!el || el.type !== 'textbox') return;
       e.preventDefault(); e.stopPropagation();
       openTextboxEditor(el);
-    });
-
-    // Fallback: some environments fire reliable double-clicks via click with detail===2
-    $('#canvas').addEventListener('click', e=>{
-      if (e.detail !== 2) return;
-      const svg = $('#canvas');
-      const target = e.target;
-      let elId = target.getAttribute && (target.getAttribute('data-element-id') || target.getAttribute('data-label-of'));
-      let el = elId ? state.elements.find(x=>x.id===elId) : null;
-      if (!el){
-        const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const ctm = svg.getScreenCTM(); const p = pt.matrixTransform(ctm.inverse());
-        el = [...state.elements].reverse().find(x=> x.type==='textbox' && p.x>=x.x && p.x<=x.x+(x.width||0) && p.y>=x.y && p.y<=x.y+(x.height||0));
-      }
-      if (el && el.type==='textbox'){ e.preventDefault(); e.stopPropagation(); openTextboxEditor(el); }
     });
 
     function openTextboxEditor(el){
