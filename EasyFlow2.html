@@ -1147,12 +1147,62 @@
     }
 
     function exportSVG(){
-      const svg = $('#canvas').cloneNode(true);
+      const canvas = document.getElementById('canvas'); if (!canvas) return;
+      const NS = 'http://www.w3.org/2000/svg';
+      const w = canvas.clientWidth || parseInt(canvas.getAttribute('width')||'0') || 1200;
+      const h = canvas.clientHeight || parseInt(canvas.getAttribute('height')||'0') || 800;
+
+      const out = document.createElementNS(NS, 'svg');
+      out.setAttribute('xmlns', NS);
+      out.setAttribute('width', String(w));
+      out.setAttribute('height', String(h));
+      out.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+      // Background columns: match on-screen sizes using DOM measurements when possible
+      const bg = document.getElementById('columnsBg');
+      if (bg && bg.children && bg.children.length){
+        const bgRect = bg.getBoundingClientRect();
+        for (const child of bg.children){
+          if (!child.classList || !child.classList.contains('col-bg')) continue;
+          const cr = child.getBoundingClientRect();
+          const relX = (cr.left - bgRect.left) / (bgRect.width || 1);
+          const relW = (cr.width) / (bgRect.width || 1);
+          const rx = Math.round(relX * w);
+          const rw = Math.round(relW * w);
+          const r = document.createElementNS(NS, 'rect');
+          r.setAttribute('x', String(rx)); r.setAttribute('y', '0');
+          r.setAttribute('width', String(rw)); r.setAttribute('height', String(h));
+          r.setAttribute('fill', child.style.background || '#ffffff');
+          r.setAttribute('stroke', '#cfd4e0'); r.setAttribute('stroke-width', '1');
+          out.appendChild(r);
+        }
+      } else {
+        const visible = state.columns.filter(c=>c.flex>0);
+        const sumFlex = visible.reduce((s,c)=> s + (Number(c.flex)||0), 0);
+        const baseTotal = (sumFlex > 1 + 1e-6) ? sumFlex : 1; // mirror UI logic so leftover space stays empty
+        let cx = 0;
+        for (const col of visible){
+          const cw = w * ((Number(col.flex)||0)/baseTotal);
+          const r = document.createElementNS(NS, 'rect');
+          r.setAttribute('x', String(cx)); r.setAttribute('y', '0');
+          r.setAttribute('width', String(cw)); r.setAttribute('height', String(h));
+          r.setAttribute('fill', col.color || '#ffffff');
+          r.setAttribute('stroke', '#cfd4e0'); r.setAttribute('stroke-width', '1');
+          out.appendChild(r);
+          cx += cw;
+        }
+      }
+
+      // Move all canvas children into out svg
+      const clone = canvas.cloneNode(true);
+      clone.removeAttribute('style');
+      while (clone.firstChild){ out.appendChild(clone.firstChild); }
+
       const ser = new XMLSerializer();
-      const source = ser.serializeToString(svg);
+      const source = ser.serializeToString(out);
       const blob = new Blob([source], { type:'image/svg+xml' });
-      const url = URL.createObjectURL(blob); const a = document.createElement('a');
-      a.href = url; a.download='flowchart.svg'; a.click(); URL.revokeObjectURL(url);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download='flowchart.svg'; a.click(); URL.revokeObjectURL(url);
     }
     
     function resetCanvas() {
