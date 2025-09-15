@@ -65,6 +65,16 @@
     .ai-bar textarea{flex:1;min-width:280px;height:80px;padding:8px;border-radius:8px;border:1px solid var(--border);font-family:inherit;font-size:13px}
     .ai-bar input[type="password"], .ai-bar select{height:32px;border-radius:8px;border:1px solid var(--border);padding:0 10px}
     .ai-bar .muted{color:var(--muted);font-size:12px}
+
+    /* Icon Picker */
+    .modal{position:fixed; inset:0; background:rgba(0,0,0,.3); display:none; align-items:center; justify-content:center; z-index:100}
+    .modal .panel{background:#fff; border:1px solid var(--border); border-radius:10px; width:min(900px,90vw); max-height:80vh; display:flex; flex-direction:column}
+    .modal .head{display:flex; gap:8px; align-items:center; padding:10px; border-bottom:1px solid var(--border)}
+    .modal .head input, .modal .head select{height:32px}
+    .modal .grid{padding:10px; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill, minmax(80px,1fr)); gap:10px}
+    .modal .cell{display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px; border:1px solid var(--border); border-radius:8px; cursor:pointer}
+    .modal .cell:hover{background:#f8fafc}
+    .icon-svg{width:32px; height:32px}
   </style>
 </head>
 <body>
@@ -112,6 +122,7 @@
   <div class="group">
       <button id="addImgBtn" class="gray" data-translate-key="addImage" title="Add Image">+ Image</button>
       <input id="imgInput" class="sr-only" type="file" accept="image/*" />
+      <button id="addIconBtn" class="gray" data-translate-key="addIcon" title="Add Icon">+ Icon</button>
   </div>
 
     <div class="group">
@@ -160,6 +171,21 @@
   </div>
 
   <div class="properties" id="props" style="display:none;"></div>
+
+  <!-- Icon Picker Modal -->
+  <div class="modal" id="iconModal" aria-hidden="true">
+    <div class="panel">
+      <div class="head">
+        <select id="iconLibrary">
+          <option value="lucide">Lucide</option>
+          <option value="bootstrap">Bootstrap Icons</option>
+        </select>
+        <input id="iconSearch" type="text" placeholder="Search..." style="flex:1;">
+        <button id="iconClose">✕</button>
+      </div>
+      <div class="grid" id="iconGrid"></div>
+    </div>
+  </div>
 
   <script>
     // ======= i18n & Translations =======
@@ -212,6 +238,7 @@
         addColumn: 'Spalte hinzufügen',
         visible: 'Sichtbar',
         addImage: 'Bild hinzufügen',
+        addIcon: 'Icon hinzufügen',
         aiSampleText: `ITIL-angelehnter Request Flow:\n- Nutzer stellt Service Request im Portal ein (Start)\n- 1st Level klassifiziert und prüft\n- Entscheidung: Incident oder Service Request?\n  - Wenn Incident: Incident-Process, Workaround, Escalation, Abschluss\n  - Wenn Service Request: Genehmigung durch Kostenstellenleiter\n- Umsetzung durch Field IT\n- Dokumentation & Abschlussbericht\n- Knowledge Update & Review (Ende)`,
         aiPrompt: `Erzeuge *ausschließlich* valides JSON, keine Erklärtexte, keine Markdown-Codeblöcke. Schema:\n{\n  \"version\": \"1.0\",\n  \"columns\": [ { \"id\": number, \"name\": string, \"flex\": number, \"color\": string } ],\n  \"elements\": [\n    { \"id\": string (oder leer), \"type\": \"start\"|\"process\"|\"decision\"|\"document\"|\"database\"|\"manual\"|\"wait\"|\"connector\",\n      \"text\": string,\n      \"lane\": string (Spaltenname),\n      \"width\"?: number, \"height\"?: number,\n      \"x\"?: number, \"y\"?: number\n    }\n  ],\n  \"connections\": [ { \"from\": string, \"to\": string, \"mode\"?: \"auto\"|\"horizontal\"|\"vertical\" } ]\n}\nRegeln: 1) IDs, wenn leer, einfach generisch lassen (wir vergeben sie). 2) *Kein* Freitext außerhalb des JSON. 3) Lane-Namen müssen den Spaltennamen entsprechen. 4) Wenn Position (x,y) fehlt: nur lane setzen.\n\nOrganisation:\n{orgText}`
       },
@@ -263,6 +290,7 @@
         addColumn: 'Add Column',
         visible: 'Visible',
         addImage: 'Add Image',
+        addIcon: 'Add Icon',
         aiSampleText: `ITIL-inspired Request Flow:\n- User submits a Service Request in the portal (Start)\n- 1st Level classifies and checks it\n- Decision: Is it an Incident or a Service Request?\n  - If Incident: Incident Process, Workaround, Escalation, Closure\n  - If Service Request: Approval by cost center manager\n- Implementation by Field IT\n- Documentation & Final Report\n- Knowledge Update & Review (End)`,
         aiPrompt: `Generate *only* valid JSON, no explanatory text, no markdown code blocks. Schema:\n{\n  \"version\": \"1.0\",\n  \"columns\": [ { \"id\": number, \"name\": string, \"flex\": number, \"color\": string } ],\n  \"elements\": [\n    { \"id\": string (or empty), \"type\": \"start\"|\"process\"|\"decision\"|\"document\"|\"database\"|\"manual\"|\"wait\"|\"connector\",\n      \"text\": string,\n      \"lane\": string (column name),\n      \"width\"?: number, \"height\"?: number,\n      \"x\"?: number, \"y\"?: number\n    }\n  ],\n  \"connections\": [ { \"from\": string, \"to\": string, \"mode\"?: \"auto\"|\"horizontal\"|\"vertical\" } ]\n}\nRules: 1) If IDs are empty, just leave them (we assign them). 2) *No* free text outside the JSON. 3) Lane names must match the column names. 4) If position (x,y) is missing: just set the lane.\n\nOrganization:\n{orgText}`
       }
@@ -525,6 +553,165 @@
       return el;
     }
 
+    // Convert an SVG markup string to a PNG data URL at the requested size
+    function svgToPngDataUrl(svgStr, w, h){
+      return new Promise((resolve)=>{
+        try{
+          const blob = new Blob([String(svgStr)], { type:'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = ()=>{
+            const ratio = window.devicePixelRatio || 1;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(w * ratio));
+            canvas.height = Math.max(1, Math.round(h * ratio));
+            const ctx = canvas.getContext('2d');
+            ctx.scale(ratio, ratio);
+            ctx.clearRect(0,0,w,h);
+            ctx.drawImage(img, 0, 0, w, h);
+            const png = canvas.toDataURL('image/png');
+            URL.revokeObjectURL(url);
+            resolve(png);
+          };
+          img.onerror = ()=>{ URL.revokeObjectURL(url); resolve(null); };
+          img.src = url;
+        }catch(e){ resolve(null); }
+      });
+    }
+
+    // Render SVG markup inline as vector paths into a given group (immediate visual)
+    function renderSvgMarkupAsPaths(g, svgStr, w, h){
+      try{
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(String(svgStr), 'image/svg+xml');
+        const root = doc.documentElement; if (!root || root.nodeName.toLowerCase() !== 'svg') return false;
+        const vb = root.getAttribute('viewBox') || '0 0 24 24';
+        const parts = vb.split(' ').map(Number); const vbw = parts[2]||24, vbh = parts[3]||24;
+        const sx = w/(vbw||24), sy = h/(vbh||24);
+        const wrap = svgEl('g', { transform:`scale(${sx} ${sy})` });
+        const shapes = root.querySelectorAll('path,rect,circle,ellipse,polygon,polyline,line');
+        shapes.forEach(node=>{
+          const tag = node.tagName.toLowerCase();
+          const attrs = Object.fromEntries(Array.from(node.attributes).map(a=>[a.name,a.value]));
+          const n = svgEl(tag, attrs);
+          if (n.getAttribute('fill') === 'currentColor') n.setAttribute('fill', '#374151');
+          if (n.getAttribute('stroke') === 'currentColor') n.setAttribute('stroke', '#374151');
+          wrap.appendChild(n);
+        });
+        g.appendChild(wrap); return true;
+      }catch(e){ return false; }
+    }
+
+    // Name converters for Lucide (PascalCase <-> kebab-case)
+    function toKebabCase(name){
+      if (!name) return '';
+      return String(name)
+        .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+        .replace(/\s+/g,'-')
+        .toLowerCase();
+    }
+    function toPascalCase(name){
+      if (!name) return '';
+      const s = String(name).replace(/[-_\s]+(.)?/g, (_,c)=> c? c.toUpperCase(): '')
+                            .replace(/^(.)/, (m)=> m.toUpperCase());
+      return s; // e.g. book-open -> BookOpen
+    }
+
+    // Try to obtain Lucide SVG by temporarily using lucide.createIcons on a hidden node
+    function getLucideSvg(name){
+      try{
+        if (!window.lucide || typeof window.lucide.createIcons !== 'function') return null;
+        const host = document.createElement('div');
+        host.style.position='absolute'; host.style.left='-9999px'; host.style.top='-9999px';
+        const kebab = toKebabCase(name);
+        host.innerHTML = `<i data-lucide="${kebab}"></i>`;
+        document.body.appendChild(host);
+        // ask lucide to process just added node (it scans the document)
+        window.lucide.createIcons();
+        const svg = host.querySelector('svg');
+        const out = svg ? svg.outerHTML : null;
+        document.body.removeChild(host);
+        return out;
+      }catch(e){ return null; }
+    }
+
+    // Inline icon renderer using stored SVG markup, with Lucide fallback
+    function renderIconInline(g, el, w, h){
+      const svgFromString = (svgStr)=>{
+        const str = (svgStr||'').trim(); if (!str) return false;
+        // Parse as real SVG
+        let root = null;
+        try{
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(str, 'image/svg+xml');
+          root = doc.documentElement;
+          if (!root || root.nodeName.toLowerCase() !== 'svg') return false;
+        }catch(e){ return false; }
+        const vb = root.getAttribute('viewBox') || '0 0 24 24';
+        const parts = vb.split(' ').map(Number); const vbw = parts[2]||24, vbh = parts[3]||24;
+        const sx = w / vbw, sy = h / vbh;
+        const wrap = svgEl('g', { transform:`scale(${sx} ${sy})`, stroke:'#374151' });
+        // import children
+        Array.from(root.childNodes).forEach(node=>{
+          if (node.nodeType !== 1) return;
+          const tag = node.nodeName.toLowerCase();
+          if (!['path','circle','rect','polygon','polyline','line','g'].includes(tag)) return;
+          const attrs = Object.fromEntries(Array.from(node.attributes).map(a=>[a.name,a.value]));
+          const n = svgEl(tag, attrs);
+          if (n.getAttribute('fill') === 'currentColor') n.setAttribute('fill','#374151');
+          if (n.getAttribute('stroke') === 'currentColor') n.setAttribute('stroke','#374151');
+          wrap.appendChild(n);
+        });
+        g.appendChild(wrap); return true;
+      };
+      if (typeof el.iconSvg === 'string' && el.iconSvg.trim()) { if (svgFromString(el.iconSvg)) return; }
+      if (el.lib==='lucide'){
+        // Try direct API
+        try{
+          const pascal = toPascalCase(el.icon);
+          if (window.lucide?.icons?.[pascal]){
+            if (svgFromString(window.lucide.icons[pascal].toSvg({}))) return;
+          }
+        }catch(e){}
+        // Fallback: dynamic replace trick
+        const str = getLucideSvg(el.icon);
+        if (str && svgFromString(str)) return;
+      }
+      // visible placeholder
+      g.appendChild(svgEl('rect', { x:2, y:2, width:Math.max(0,w-4), height:Math.max(0,h-4), fill:'none', stroke:'#9ca3af', 'stroke-dasharray':'4,4' }));
+    }
+
+    function renderIconIntoGroup(g, el, w, h){
+      if (el.lib === 'lucide' && window.lucide && window.lucide.icons && window.lucide.icons[el.icon]){
+        try{
+          const svgStr = window.lucide.icons[el.icon].toSvg({ stroke:'currentColor' });
+          const temp = document.createElement('div'); temp.innerHTML = svgStr.trim();
+          const svgNode = temp.firstChild; // <svg>
+          const paths = Array.from(svgNode.querySelectorAll('path, circle, rect, polygon, polyline, line'));
+          const vb = svgNode.getAttribute('viewBox') || '0 0 24 24';
+          const [, , vbw, vbh] = vb.split(' ').map(Number);
+          const sx = w / (vbw||24); const sy = h / (vbh||24);
+          const wrap = svgEl('g', { transform:`scale(${sx} ${sy})` });
+          for (const p of paths){
+            const n = svgEl(p.tagName, Object.fromEntries(Array.from(p.attributes).map(a=>[a.name,a.value])));
+            n.setAttribute('stroke', '#374151'); n.setAttribute('fill','none');
+            wrap.appendChild(n);
+          }
+          g.appendChild(wrap);
+          return;
+        }catch(e){}
+      }
+      // Fallback (e.g., Bootstrap Icons via foreignObject)
+      const fo = svgEl('foreignObject', { x:0, y:0, width:w, height:h, 'data-element-id': el.id });
+      const div = document.createElement('div'); div.style.width='100%'; div.style.height='100%'; div.style.display='flex'; div.style.alignItems='center'; div.style.justifyContent='center';
+      if (el.lib === 'bootstrap'){
+        div.innerHTML = `<i class="bi bi-${el.icon}" style="font-size:${Math.min(w,h)*0.8}px; color:#374151;"></i>`;
+      } else {
+        div.textContent = el.icon || '?';
+      }
+      fo.appendChild(div); g.appendChild(fo);
+    }
+
     function renderSVG(){
       const svg = $('#canvas');
       svg.innerHTML = '';
@@ -617,6 +804,28 @@
           g.appendChild(imgEl);
           g.appendChild(svgEl('rect', { width:w, height:h, fill:'none', stroke: state.selectedElement===el.id? '#ef4444' : '#374151', 'stroke-width': state.selectedElement===el.id? 3 : 1, 'pointer-events':'none' }));
           break; }
+        case 'icon': {
+          // First try vector paths for immediate visibility
+          let shown = false;
+          if (el.iconSvg) shown = renderSvgMarkupAsPaths(g, el.iconSvg, w, h);
+          // Additionally render as raster PNG when available
+          if (el.src){
+            const imgEl = document.createElementNS(NS, 'image');
+            try { imgEl.setAttributeNS('http://www.w3.org/1999/xlink','href', el.src); } catch(e){}
+            imgEl.setAttribute('href', el.src);
+            imgEl.setAttribute('width', String(w));
+            imgEl.setAttribute('height', String(h));
+            imgEl.setAttribute('preserveAspectRatio','xMidYMid meet');
+            imgEl.setAttribute('style','pointer-events:all');
+            imgEl.setAttribute('data-element-id', el.id);
+            g.appendChild(imgEl);
+            shown = true;
+          } else if (el.iconSvg){
+            // Kick off conversion; UI already shows vector paths
+            svgToPngDataUrl(el.iconSvg, w, h).then(url=>{ if (url){ el.src = url; renderSVG(); } });
+          }
+          if (!shown){ g.appendChild(svgEl('rect', { width:w, height:h, rx:4, ry:4, fill:'#ffffff', stroke:'#9ca3af', 'stroke-dasharray':'4,4' })); }
+          break; }
         default: g.appendChild(svgEl('rect', { width:w, height:h, ...common }));
       }
 
@@ -642,7 +851,7 @@
           g.appendChild(handle(w-HALF, h-HALF, 'nwse-resize','se'));
         }
 
-        if (state.connectionStart===el.id){
+      if (state.connectionStart===el.id){
           g.appendChild(svgEl('rect', { x:-5, y:-5, width:w+10, height:h+10, fill:'none', stroke:'#10b981', 'stroke-width':3, 'stroke-dasharray':'5,5', rx:5 }));
         }
 
@@ -793,6 +1002,61 @@
       }
     }
 
+    function openIconPicker(){
+      const modal = document.getElementById('iconModal');
+      const grid = document.getElementById('iconGrid');
+      const libSel = document.getElementById('iconLibrary');
+      const search = document.getElementById('iconSearch');
+      modal.style.display='flex';
+      const renderList = ()=>{
+        grid.innerHTML='';
+        const lib = libSel.value;
+        let names = [];
+        if (lib==='lucide' && window.lucide && window.lucide.icons){ names = Object.keys(window.lucide.icons); }
+        else if (lib==='bootstrap'){ names = ['alarm','archive','arrow-right','bag','bell','bookmark','calendar','camera','check','cloud','cpu','download','emoji-smile','envelope','eye','file-earmark','filter','flag','folder','gear','geo','graph-up','heart','house','image','inbox','info-circle','link','lock','menu-button','music-note','pen','people','phone','play','printer','search','shield','star','trash','upload','wifi']; }
+        const q = search.value?.toLowerCase()||'';
+        names = names.filter(n=> n.toLowerCase().includes(q)).slice(0,250);
+        for (const name of names){
+          const cell = document.createElement('div'); cell.className='cell';
+          // Preview rendering: use HTML icons to avoid heavy SVG parsing for many items
+          const previewWrap = document.createElement('div'); previewWrap.style.width='32px'; previewWrap.style.height='32px'; previewWrap.style.display='flex'; previewWrap.style.alignItems='center'; previewWrap.style.justifyContent='center';
+          if (lib==='bootstrap'){
+            previewWrap.innerHTML = `<i class="bi bi-${name}" style="font-size:20px;color:#374151;"></i>`;
+          } else if (lib==='lucide'){
+            const iTag = document.createElement('i'); iTag.setAttribute('data-lucide', toKebabCase(name)); previewWrap.appendChild(iTag);
+          }
+          const label = document.createElement('div'); label.style.fontSize='11px'; label.className='label'; label.textContent = name;
+          cell.appendChild(previewWrap); cell.appendChild(label);
+          cell.addEventListener('click', async ()=>{
+            const newEl = { id: genId(), type:'icon', lib:lib, icon:(lib==='lucide'? toKebabCase(name): name), x:100, y:100, width: 48, height:48, text:'', color:'#ffffff', font: state.currentFont, fontSize: state.currentFontSize, bold:false, italic:false };
+            try{
+              if (lib==='lucide'){
+                // Ensure preview is rendered before we read it
+                try { if (window.lucide && typeof window.lucide.createIcons==='function') window.lucide.createIcons({ root: previewWrap }); } catch(e){}
+                const svgNode = previewWrap.querySelector('svg');
+                let s = svgNode ? svgNode.outerHTML : null;
+                if (!s) s = getLucideSvg(name);
+                const pascal = toPascalCase(name);
+                if (!s && window.lucide?.icons?.[pascal]){ s = window.lucide.icons[pascal].toSvg({}); }
+                if (s){ newEl.iconSvg = s; const png = await svgToPngDataUrl(s, newEl.width, newEl.height); if (png){ newEl.src = png; newEl.type='image'; } }
+              } else if (lib==='bootstrap'){
+                const url = `https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/${name}.svg`;
+                const resp = await fetch(url); if (resp.ok){ const s = await resp.text(); newEl.iconSvg = s; const png = await svgToPngDataUrl(s, newEl.width, newEl.height); if (png){ newEl.src = png; newEl.type='image'; } }
+              }
+            }catch(e){}
+            state.elements.push(newEl); state.selectedElement = newEl.id; modal.style.display='none'; renderAll();
+          });
+          grid.appendChild(cell);
+        }
+        // Render lucide previews in bulk
+        if (lib==='lucide' && window.lucide && typeof window.lucide.createIcons==='function'){
+          window.lucide.createIcons();
+        }
+      };
+      libSel.onchange = renderList; search.oninput = renderList; document.getElementById('iconClose').onclick = ()=>{ modal.style.display='none'; };
+      renderList();
+    }
+
     function deleteElement(id){
       state.elements = state.elements.filter(e=>e.id!==id);
       state.connections = state.connections.filter(c=>c.from!==id && c.to!==id);
@@ -871,6 +1135,8 @@
     if (aiEnableEl) aiEnableEl.addEventListener('change', ()=>{ state.aiEnabled = aiEnableEl.checked; updateToolbarStates(); });
     const addImgBtn = document.getElementById('addImgBtn');
     if (addImgBtn) addImgBtn.addEventListener('click', ()=> addElement('image'));
+    const addIconBtn = document.getElementById('addIconBtn');
+    if (addIconBtn) addIconBtn.addEventListener('click', openIconPicker);
 
     document.addEventListener('keydown', e=>{
       if (e.ctrlKey || e.metaKey){
@@ -1095,6 +1361,9 @@
           x: Number.isFinite(e.x) ? Number(e.x) : null,
           y: Number.isFinite(e.y) ? Number(e.y) : null,
           src: (typeof e.src === 'string' && e.src) ? e.src : undefined,
+          lib: (typeof e.lib === 'string' && e.lib) ? e.lib : undefined,
+          icon: (typeof e.icon === 'string' && e.icon) ? e.icon : undefined,
+          iconSvg: (typeof e.iconSvg === 'string' && e.iconSvg) ? e.iconSvg : undefined,
           lane
         };
       });
@@ -1181,5 +1450,8 @@
     });
 
   </script>
+  <!-- Icon libraries -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </body>
 </html>
