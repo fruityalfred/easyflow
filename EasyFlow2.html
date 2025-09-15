@@ -95,17 +95,12 @@
     <div class="divider"></div>
 
     <div class="group">
-      <button id="gridToggle" class="gray" title="Grid on/off">Grid</button>
       <button id="guidesToggle" class="gray" title="Guides on/off">Guides</button>
-      <label class="badge">Grid Size <input id="gridSize" type="number" min="10" max="50" value="20"></label>
     </div>
 
     <div class="divider"></div>
 
-    <div class="group">
-      <button id="copyBtn" class="gray" title="Copy (Ctrl+C)">Copy</button>
-      <button id="pasteBtn" class="gray" title="Paste (Ctrl+V)" disabled>Paste</button>
-    </div>
+    
 
     <div class="divider"></div>
 
@@ -992,6 +987,26 @@
       if (alignLeft) alignLeft.addEventListener('click', ()=> setAlign('left'));
       if (alignCenter) alignCenter.addEventListener('click', ()=> setAlign('center'));
       if (alignRight) alignRight.addEventListener('click', ()=> setAlign('right'));
+      // Inline placement of alignment icons next to Italic
+      if (el.type==='textbox'){
+        const italicBtn = document.getElementById('propItalic');
+        if (italicBtn){
+          // remove old block container if present
+          if (alignLeft && alignLeft.parentElement && alignLeft.parentElement !== italicBtn.parentElement){
+            const oldContainer = alignLeft.parentElement;
+            // clone listeners by creating new buttons inline
+            const mk = (id, text, active, title, onClick)=>{
+              const b = document.createElement('button'); b.id=id; b.className = active? 'primary':'gray'; b.textContent=text; b.title=title; b.style.marginLeft = '8px'; b.addEventListener('click', onClick); return b; };
+            const bL = mk('alignLeftInline','⟸',(el.textAlign||'left')==='left','Links', ()=> setAlign('left'));
+            const bC = mk('alignCenterInline','↔',(el.textAlign||'left')==='center','Zentriert', ()=> setAlign('center'));
+            const bV = mk('valignMiddleInline','↕',(el.vAlign||'top')==='middle','Vertikal mittig', ()=>{ el.vAlign = (el.vAlign==='middle')? 'top':'middle'; renderProps(); renderSVG(); });
+            italicBtn.insertAdjacentElement('afterend', bV);
+            italicBtn.insertAdjacentElement('afterend', bC);
+            italicBtn.insertAdjacentElement('afterend', bL);
+            oldContainer.remove();
+          }
+        }
+      }
       const replaceBtn = document.getElementById('propImgReplace');
       if (replaceBtn){
         replaceBtn.addEventListener('click', ()=>{
@@ -1019,11 +1034,10 @@
 
     function updateToolbarStates(){
       $('#connectBtn').className = state.isConnecting ? 'success' : 'gray';
-      $('#pasteBtn').disabled = !state.copiedElement;
-      $('#gridToggle').className = state.showGrid ? 'primary' : 'gray';
+      // removed paste and grid toggle controls
       $('#guidesToggle').className = state.showGuides ? 'primary' : 'gray';
       $('#connectionMode').value = state.connectionMode;
-      $('#gridSize').value = state.gridSize;
+      // removed grid size control
       
     }
 
@@ -1146,11 +1160,8 @@
     $('#resetBtn').addEventListener('click', resetCanvas);
     $('#connectBtn').addEventListener('click', ()=>{ state.isConnecting = !state.isConnecting; state.connectionStart = null; renderAll(); });
     $('#connectionMode').addEventListener('change', e=>{ state.connectionMode = e.target.value; renderAll(); });
-    $('#gridToggle').addEventListener('click', ()=>{ state.showGrid = !state.showGrid; renderAll(); });
+    // removed grid toggle and grid size, keep guides only
     $('#guidesToggle').addEventListener('click', ()=>{ state.showGuides = !state.showGuides; renderAll(); });
-    $('#gridSize').addEventListener('input', e=>{ state.gridSize = clamp(parseInt(e.target.value)||20, 10, 50); renderAll(); });
-    $('#copyBtn').addEventListener('click', copyElement);
-    $('#pasteBtn').addEventListener('click', pasteElement);
     $('#saveBtn').addEventListener('click', saveProject);
     $('#exportSvgBtn').addEventListener('click', exportSVG);
     $('#loadBtn').addEventListener('click', ()=> $('#fileInput').click());
