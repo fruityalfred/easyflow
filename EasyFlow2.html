@@ -960,6 +960,16 @@
         </div>`;
 
       $('#propText').addEventListener('input', e=>{ el.text = e.target.value; renderSVG(); });
+      // Textbox editing via properties text field: open inline editor on click/keypress
+      if (el.type === 'textbox'){
+        const pt = document.getElementById('propText');
+        if (pt){
+          pt.readOnly = true;
+          pt.title = (typeof i18n === 'function') ? i18n('editInElement') : 'Direkt im Element editieren';
+          pt.addEventListener('click', (ev)=>{ ev.preventDefault(); openTextboxEditor(el); });
+          pt.addEventListener('keydown', (ev)=>{ ev.preventDefault(); openTextboxEditor(el); });
+        }
+      }
       $('#propW').addEventListener('input', e=>{ el.width = parseInt(e.target.value)||120; renderSVG(); });
       $('#propH').addEventListener('input', e=>{ el.height = parseInt(e.target.value)||60; renderSVG(); });
       const colorInput = $('#propColor');
