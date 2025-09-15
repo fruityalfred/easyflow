@@ -1475,6 +1475,9 @@
           x: Number.isFinite(e.x) ? Number(e.x) : null,
           y: Number.isFinite(e.y) ? Number(e.y) : null,
           src: (typeof e.src === 'string' && e.src) ? e.src : undefined,
+          // Preserve label positions for elements that support movable labels (e.g., image)
+          labelX: Number.isFinite(e.labelX) ? Number(e.labelX) : undefined,
+          labelY: Number.isFinite(e.labelY) ? Number(e.labelY) : undefined,
           lane
         };
       });
