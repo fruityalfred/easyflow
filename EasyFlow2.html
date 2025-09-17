@@ -681,10 +681,11 @@
         bg.appendChild(div);
       }
 
-      // Add a resizer at the right edge of each column (independent resize)
+      // Add resizers between adjacent columns (pair-resize only)
       if (handles){
         let cum = 0;
-        for (let vi = 0; vi < visible.length; vi++){
+        // Create handles only between columns (exclude the far right edge)
+        for (let vi = 0; vi < visible.length - 1; vi++){
           cum += widths[vi] || 0;
           const idx = visible[vi]._idx;
           const handle = document.createElement('div');
@@ -693,19 +694,23 @@
           handle.style.left = `calc(${cum}% - 5px)`;
           handle.style.right = 'auto';
           handle.style.pointerEvents = 'auto';
+          // Do not place a working handle after the last column (no right neighbor)
           handle.addEventListener('pointerdown', (e)=>{
             e.preventDefault();
             const rect = bg.getBoundingClientRect();
-            const othersSum = state.columns
-              .filter((c,ii)=> c.flex>0 && ii!==idx)
-              .reduce((s,c)=> s + c.flex, 0);
+            const leftIdx = visible[vi]._idx;
+            const rightIdx = visible[vi+1]._idx;
+            const leftFlex = Number(state.columns[leftIdx].flex)||0;
+            const rightFlex = Number(state.columns[rightIdx].flex)||0;
             colDrag = {
-              targetIdx: idx,
+              leftIdx,
+              rightIdx,
               startX: e.clientX,
               bgWidth: rect.width,
               baseTotal: baseTotal,
-              startFlex: state.columns[idx].flex,
-              othersSum,
+              leftStartFlex: leftFlex,
+              rightStartFlex: rightFlex,
+              pairTotalFlex: leftFlex + rightFlex,
             };
             document.body.style.userSelect = 'none';
             window.addEventListener('pointermove', onColResizeMove);
@@ -714,6 +719,46 @@
           handle.addEventListener('dblclick', equalizeColumns);
           handles.appendChild(handle);
         }
+        // Add a right-edge handle to resize the last column against free space
+        const totalPct = widths.reduce((s,v)=> s + (v||0), 0);
+        const lastIdx = visible[visible.length-1]?._idx;
+        if (lastIdx != null){
+          const rightHandle = document.createElement('div');
+          rightHandle.className = 'col-resizer';
+          rightHandle.title = 'Resize last column';
+          rightHandle.style.left = `calc(${totalPct}% - 5px)`;
+          rightHandle.style.right = 'auto';
+          rightHandle.style.pointerEvents = 'auto';
+          rightHandle.addEventListener('pointerdown', (e)=>{
+            e.preventDefault();
+            const rect = bg.getBoundingClientRect();
+            const leftIdx = lastIdx;
+            // Normalize all flex values to absolute percentages (sum -> 1) to decouple other columns
+            const denom0 = (baseTotal||1);
+            if (denom0 !== 1){
+              for (const c of state.columns){ if (c.flex>0) c.flex = (Number(c.flex)||0)/denom0; }
+            }
+            const leftFlex = Number(state.columns[leftIdx].flex)||0; // already normalized
+            // Pair region = last column + free space (constant while dragging)
+            const othersSum = state.columns.reduce((s,c,ii)=> ii===leftIdx? s : s + (Number(c.flex)||0), 0);
+            const pairTotalPct = Math.max(0, 100 - othersSum*100);
+            colDrag = {
+              leftIdx,
+              rightIdx: null,
+              lastFree: true,
+              startX: e.clientX,
+              bgWidth: rect.width,
+              baseTotal: 1,
+              leftStartFlex: leftFlex,
+              pairTotalPct,
+            };
+            document.body.style.userSelect = 'none';
+            window.addEventListener('pointermove', onColResizeMove);
+            window.addEventListener('pointerup', onColResizeEnd, { once: true });
+          });
+          rightHandle.addEventListener('dblclick', equalizeColumns);
+          handles.appendChild(rightHandle);
+        }
       }
     }
 
@@ -721,16 +766,29 @@
       if (!colDrag) return;
       const dx = e.clientX - colDrag.startX;
       if (colDrag.bgWidth <= 0) return;
-      const deltaPct = (dx / colDrag.bgWidth) * 100;
       const denom = colDrag.baseTotal || 1;
-      const minPct = 5; // minimal 5% visual width
-      const minFlex = (minPct/100) * denom;
-      const deltaFlex = (deltaPct/100) * denom;
+      const deltaPct = (dx / colDrag.bgWidth) * 100;
+      // Minimal width per column in pixels, converted to percentage for current container
+      const minPx = 80;
+      const minPct = Math.min(25, (minPx / Math.max(colDrag.bgWidth, 1)) * 100);
 
-      let newFlex = colDrag.startFlex + deltaFlex;
-      const maxFlex = Math.max(minFlex, (denom - (colDrag.othersSum ?? 0)));
-      newFlex = Math.max(minFlex, Math.min(maxFlex, newFlex));
-      state.columns[colDrag.targetIdx].flex = newFlex;
+      // Work in percentage space to keep the pair's total width constant
+      const leftStartPct = (colDrag.leftStartFlex/denom) * 100;
+      const pairPct = colDrag.lastFree ? (colDrag.pairTotalPct ?? (colDrag.leftStartFlex/denom)*100) : (colDrag.pairTotalFlex/denom) * 100;
+      let newLeftPct = leftStartPct + deltaPct;
+      const minLeftPct = Math.min(minPct, pairPct); // enforce min width for the left column
+      const maxLeftPct = colDrag.lastFree ? pairPct : Math.max(pairPct - minPct, 0); // no min for free space
+      newLeftPct = Math.max(minLeftPct, Math.min(maxLeftPct, newLeftPct));
+      const newRightPct = pairPct - newLeftPct;
+
+      // Convert back to flex values
+      const newLeftFlex = (newLeftPct/100) * denom;
+      const newRightFlex = (newRightPct/100) * denom;
+
+      state.columns[colDrag.leftIdx].flex = newLeftFlex;
+      if (!colDrag.lastFree && colDrag.rightIdx != null) {
+        state.columns[colDrag.rightIdx].flex = newRightFlex;
+      }
       renderColumnsBg();
     }
 
