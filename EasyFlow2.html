@@ -331,6 +331,7 @@
       currentColor: '#3b82f6',
       columnsBaseTotalFlex: null,
       iconsList: null,
+      iconsBase: 'Icons',
     };
 
     // Drag state for column resizing
@@ -531,31 +532,47 @@
 
     async function loadIconsList(){
       if (Array.isArray(state.iconsList)) return state.iconsList;
-      // 1) Try manifest JSON
-      try{
-        const r = await fetch('Icons/manifest.json', { cache: 'no-store' });
-        if (r.ok){
-          const arr = await r.json();
-          const files = (Array.isArray(arr)?arr:[])
-            .filter(x=>/\.png$/i.test(x))
-            .map(x=>({ name: String(x), url: `Icons/${String(x).replace(/^\/?Icons\//i,'')}` }));
-          state.iconsList = files; return files;
-        }
-      }catch {}
-      // 2) Try directory listing parsing
-      try{
-        const r = await fetch('Icons/', { cache: 'no-store' });
-        if (r.ok){
-          const html = await r.text();
-          const re = /href=["']([^"']+\.png)["']/ig;
-          const set = new Set();
-          let m; while((m = re.exec(html))){ set.add(decodeURIComponent(m[1])); }
-          const files = Array.from(set)
-            .filter(f=>!f.endsWith('/'))
-            .map(f=>({ name: f.split('/').pop(), url: `Icons/${f.replace(/^\/?Icons\//i,'')}` }));
-          state.iconsList = files; return files;
-        }
-      }catch {}
+      const bases = ['Icons','icons'];
+      // 1) Try manifest JSON (Icons/ or icons/)
+      for (const base of bases){
+        try{
+          const r = await fetch(`${base}/manifest.json`, { cache: 'no-store' });
+          if (r.ok){
+            const arr = await r.json();
+            const files = (Array.isArray(arr)?arr:[])
+              .filter(x=>typeof x === 'string' && /\.png$/i.test(x))
+              .map(x=>{
+                const s = String(x);
+                if (/^https?:\/\//i.test(s) || s.startsWith('/')){
+                  return { name: s.split('/').pop(), url: s };
+                }
+                return { name: s, url: `${base}/${s.replace(/^\/?icons?\//i,'')}` };
+              });
+            state.iconsBase = base;
+            state.iconsList = files; return files;
+          }
+        }catch {}
+      }
+      // 2) Try directory listing parsing (Icons/ or icons/)
+      for (const base of bases){
+        try{
+          const r = await fetch(`${base}/`, { cache: 'no-store' });
+          if (r.ok){
+            const html = await r.text();
+            const re = /href=["']([^"']+\.png)["']/ig;
+            const set = new Set();
+            let m; while((m = re.exec(html))){ set.add(decodeURIComponent(m[1])); }
+            const files = Array.from(set)
+              .filter(f=>!f.endsWith('/'))
+              .map(f=>{
+                if (/^https?:\/\//i.test(f) || f.startsWith('/')){ return { name: f.split('/').pop(), url: f }; }
+                return { name: f.split('/').pop(), url: `${base}/${f.replace(/^\/?icons?\//i,'')}` };
+              });
+            state.iconsBase = base;
+            state.iconsList = files; return files;
+          }
+        }catch {}
+      }
       // 3) Fallback: none
       state.iconsList = [];
       return [];
@@ -576,7 +593,11 @@
       // Reset scroll to top on every render
       const body = document.querySelector('#iconsModal .modal-body'); if (body) body.scrollTop = 0;
       sorted.forEach(f=>{
-        const url = typeof f === 'string' ? (/^https?:/i.test(f) ? f : `Icons/${f.replace(/^\/?Icons\//i,'')}`) : f.url;
+        const url = typeof f === 'string'
+          ? (/^https?:/i.test(f) || f.startsWith('/')
+              ? f
+              : `${state.iconsBase}/${f.replace(/^\/?icons?\//i,'')}`)
+          : f.url;
         const item = document.createElement('div'); item.className = 'icon-item'; item.title = displayIconName(f);
         const img = document.createElement('img'); img.className = 'icon-thumb'; img.src = url; img.alt = displayIconName(f);
         const name = document.createElement('div'); name.className = 'icon-name'; name.textContent = displayIconName(f);
