@@ -396,6 +396,18 @@
       };
     }
 
+    function anchorOnSide(el, side, t){
+      const w = el.width ?? 120; const h = el.height ?? 60;
+      const clamped = Math.max(0, Math.min(1, Number(t)||0.5));
+      switch(side){
+        case 'top': return { x: el.x + clamped*w, y: el.y };
+        case 'bottom': return { x: el.x + clamped*w, y: el.y + h };
+        case 'left': return { x: el.x, y: el.y + clamped*h };
+        case 'right': return { x: el.x + w, y: el.y + clamped*h };
+        default: return { x: el.x + w, y: el.y + h/2 };
+      }
+    }
+
     function generateGuideLines(dragged){
       if (!state.showGuides || !dragged) return [];
       const guides = []; const thr = 5;
@@ -797,9 +809,27 @@
             else { start = fp.left; end = tp.right; d = `M ${start.x} ${start.y} L ${start.x} ${end.y} L ${end.x} ${end.y}`; }
           }
         }
+        // Override anchors if manual sides/ratios are set
+        if (conn.startSide){ start = anchorOnSide(from, conn.startSide, conn.startT ?? 0.5); }
+        if (conn.endSide){ end = anchorOnSide(to, conn.endSide, conn.endT ?? 0.5); }
+        // Manual override via waypoints
+        if (Array.isArray(conn.points) && conn.points.length){
+          const sPt = start || fp.right; const ePt = end || tp.left;
+          const pts = conn.points.map(p=>`${p.x} ${p.y}`).join(' L ');
+          d = `M ${sPt.x} ${sPt.y} L ${pts} L ${ePt.x} ${ePt.y}`;
+        }
         const g = svgEl('g');
         g.appendChild(svgEl('path', { d, stroke: conn.color || '#374151', 'stroke-width': 2, fill:'none', 'marker-end':'url(#arrowhead)', style:'cursor:pointer', 'data-connection-id': conn.id }));
         g.appendChild(svgEl('path', { d, stroke:'transparent', 'stroke-width': 8, fill:'none', style:'cursor:pointer', 'data-connection-id': conn.id }));
+        // Endpoint handles
+        const s = start || fp.right; const e = end || tp.left;
+        g.appendChild(svgEl('circle', { cx:s.x, cy:s.y, r:5, fill:'#fff', stroke:'#16a34a', 'stroke-width':1.5, style:'cursor:grab', 'data-conn-end': conn.id, 'data-which':'start' }));
+        g.appendChild(svgEl('circle', { cx:e.x, cy:e.y, r:5, fill:'#fff', stroke:'#dc2626', 'stroke-width':1.5, style:'cursor:grab', 'data-conn-end': conn.id, 'data-which':'end' }));
+        if (Array.isArray(conn.points)){
+          conn.points.forEach((p,idx)=>{
+            g.appendChild(svgEl('circle', { cx:p.x, cy:p.y, r:5, fill:'#fff', stroke:'#2563eb', 'stroke-width':1.5, style:'cursor:grab', 'data-conn-handle': conn.id, 'data-conn-idx': String(idx) }));
+          });
+        }
         svg.appendChild(g);
       }
 
@@ -1313,9 +1343,29 @@
       const labelOf = target.getAttribute('data-label-of');
       const handle = target.getAttribute('data-resize-handle');
       const connId = target.getAttribute('data-connection-id');
+      const connHandleId = target.getAttribute('data-conn-handle');
+      const connHandleIdx = target.getAttribute('data-conn-idx');
+      const connEndId = target.getAttribute('data-conn-end');
+      const connEndWhich = target.getAttribute('data-which');
       const isBg = target.hasAttribute('data-bg');
 
-      if (connId){ e.stopPropagation(); state.connections = state.connections.filter(c=>c.id !== connId); renderAll(); return; }
+      if (connEndId){
+        e.stopPropagation();
+        state.isDraggingConnHandle = true; state.connDrag = { id: connEndId, end: connEndWhich };
+        e.currentTarget.setPointerCapture(e.pointerId); pointerCapturing = true; return;
+      }
+      if (connHandleId){
+        e.stopPropagation();
+        state.isDraggingConnHandle = true; state.connDrag = { id: connHandleId, idx: parseInt(connHandleIdx) };
+        e.currentTarget.setPointerCapture(e.pointerId); pointerCapturing = true; return;
+      }
+      if (connId){
+        if (e.altKey){
+          e.stopPropagation();
+          const c = state.connections.find(c=>c.id===connId); if (c){ if (!Array.isArray(c.points)) c.points=[]; c.points.push({ x:p.x, y:p.y }); renderAll(); }
+          return;
+        }
+        e.stopPropagation(); state.connections = state.connections.filter(c=>c.id !== connId); renderAll(); return; }
       if (labelOf){
         state.selectedElement = labelOf;
         const el = state.elements.find(x=>x.id===labelOf);
@@ -1452,7 +1502,38 @@
         state.isDragging = true; state.maybeDrag = false;
       }
 
-      if (state.isDraggingLabel && state.selectedElement){
+      if (state.isDraggingConnHandle && state.connDrag){
+        const c = state.connections.find(x=>x.id===state.connDrag.id);
+        if (c){
+          if (typeof state.connDrag.idx === 'number'){
+            if (Array.isArray(c.points) && c.points[state.connDrag.idx]){
+              c.points[state.connDrag.idx] = { x: p.x, y: p.y };
+            }
+          } else if (state.connDrag.end){
+            // dragging endpoint: compute side and ratio on source/target element
+            const el = state.elements.find(x=> x.id === (state.connDrag.end==='start' ? c.from : c.to));
+            if (el){
+              const w = el.width||120, h = el.height||60;
+              const relX = (p.x - el.x) / w; const relY = (p.y - el.y) / h;
+              // decide nearest side by distance to edges
+              const dTop = Math.abs(relY);
+              const dBottom = Math.abs(1 - relY);
+              const dLeft = Math.abs(relX);
+              const dRight = Math.abs(1 - relX);
+              const minD = Math.min(dTop,dBottom,dLeft,dRight);
+              let side='right', t=0.5;
+              if (minD===dTop){ side='top'; t = Math.max(0,Math.min(1,relX)); }
+              else if (minD===dBottom){ side='bottom'; t = Math.max(0,Math.min(1,relX)); }
+              else if (minD===dLeft){ side='left'; t = Math.max(0,Math.min(1,relY)); }
+              else { side='right'; t = Math.max(0,Math.min(1,relY)); }
+              if (state.connDrag.end==='start'){ c.startSide = side; c.startT = t; }
+              else { c.endSide = side; c.endT = t; }
+            }
+          }
+          renderSVG();
+        }
+        return;
+      } else if (state.isDraggingLabel && state.selectedElement){
         const el = state.elements.find(x=>x.id===state.selectedElement); if(!el) return;
         const fs = el.fontSize||12; const paddingX=8, paddingY=6; const textWidth = Math.max(20, Math.round(((el.text||'').length||1) * fs * 0.6));
         const boxW = textWidth + paddingX*2; const boxH = fs + paddingY*2;
@@ -1515,7 +1596,7 @@
         // tiny click on bg clears selection
         state.selectedElements = []; state.selectedElement = null;
       }
-      state.isDragging = false; state.maybeDrag = false; state.isDraggingGroup = false; state.isMarquee = false; state.marqueeRect = null; state.groupStartPos = null; state.isDraggingLabel = false; state.labelStartPos = null;
+      state.isDragging = false; state.maybeDrag = false; state.isDraggingGroup = false; state.isMarquee = false; state.marqueeRect = null; state.groupStartPos = null; state.isDraggingLabel = false; state.labelStartPos = null; state.isDraggingConnHandle = false; state.connDrag = null;
       state.isResizing = false; state.resizeHandle = null; state.guideLines = []; renderSVG();
     });
 
@@ -1577,7 +1658,12 @@
       });
       state.connections = (data.connections||[]).map(c=>({
         id: genId(), from: idMap.get(c.from) || c.from, to: idMap.get(c.to) || c.to, color:'#374151',
-        mode: (c.mode==='horizontal'||c.mode==='vertical')? c.mode : 'auto'
+        mode: (c.mode==='horizontal'||c.mode==='vertical')? c.mode : 'auto',
+        points: Array.isArray(c.points) ? c.points.map(p=>({ x:Number(p.x)||0, y:Number(p.y)||0 })) : undefined,
+        startSide: (c.startSide==='top'||c.startSide==='bottom'||c.startSide==='left'||c.startSide==='right') ? c.startSide : undefined,
+        startT: Number.isFinite(Number(c.startT)) ? Math.max(0,Math.min(1,Number(c.startT))) : undefined,
+        endSide: (c.endSide==='top'||c.endSide==='bottom'||c.endSide==='left'||c.endSide==='right') ? c.endSide : undefined,
+        endT: Number.isFinite(Number(c.endT)) ? Math.max(0,Math.min(1,Number(c.endT))) : undefined
       })).filter(c=>c.from && c.to);
 
       autoLayoutIfNeeded();
