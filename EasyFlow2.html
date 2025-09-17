@@ -1410,7 +1410,11 @@
           const c = state.connections.find(c=>c.id===connId); if (c){ if (!Array.isArray(c.points)) c.points=[]; c.points.push({ x:p.x, y:p.y }); renderAll(); }
           return;
         }
-        e.stopPropagation(); state.connections = state.connections.filter(c=>c.id !== connId); renderAll(); return; }
+        // Single click on a connection no longer deletes it.
+        // Deletion is now handled via double-click; keep Alt+click for adding points.
+        e.stopPropagation();
+        return;
+      }
       if (labelOf){
         state.selectedElement = labelOf;
         const el = state.elements.find(x=>x.id===labelOf);
@@ -1468,10 +1472,18 @@
       e.currentTarget.setPointerCapture(e.pointerId); pointerCapturing = true;
     });
 
-    // Enable inline editing for textbox on double click
+    // Enable deletion of connections and inline editing for textbox on double click
     $('#canvas').addEventListener('dblclick', e=>{
       const svg = $('#canvas');
       const target = e.target;
+      // First: if double-click occurs on a connection, delete it (unless Alt is pressed)
+      const connId = target.getAttribute && target.getAttribute('data-connection-id');
+      if (connId && !e.altKey){
+        e.preventDefault(); e.stopPropagation();
+        state.connections = state.connections.filter(c=>c.id !== connId);
+        renderAll();
+        return;
+      }
       let elId = target.getAttribute('data-element-id') || target.getAttribute('data-label-of');
       let el = null;
       if (elId){
